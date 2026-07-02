@@ -61,3 +61,17 @@ body {
   font-family: sans-serif;
   opacity: 0.55;
 }
+
+#fps {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  color: #fff;
+  font-family: monospace;
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 20;
+}

@@ -34,81 +34,32 @@ fn col(chunk: &mut Chunk, vx: i32, vz: i32, y0: i32, y1: i32, id: u32) {
     }
 }
 
-// ── building types ────────────────────────────────────────────────────────────
-
 struct Ids {
     stone: u32,
     brick: u32,
     glass: u32,
-    wood: u32,
     dark_stone: u32,
     cobble: u32,
 }
 
-// Simple box building: solid walls, glass windows, flat roof
-fn building(
-    chunk: &mut Chunk,
-    bx: i32, bz: i32,   // world origin corner
-    w: i32, d: i32,     // width, depth
-    height: i32,
-    ground: i32,
-    wall_id: u32,
-    roof_id: u32,
-    ids: &Ids,
-) {
-    let x1 = bx + w - 1;
-    let z1 = bz + d - 1;
-    let y1 = ground + height;
-
-    // walls
-    walls(chunk, bx, ground, bz, x1, y1, z1, wall_id);
-
-    // windows: two rows of glass on each face
-    for vy in [ground + 2, ground + height - 2] {
-        if height < 4 { break; }
-        // front/back
-        for vx in (bx + 1..x1).step_by(2) {
-            chunk.set_voxel(vx, vy, bz, ids.glass);
-            chunk.set_voxel(vx, vy, z1, ids.glass);
-        }
-        // sides
-        for vz in (bz + 1..z1).step_by(2) {
-            chunk.set_voxel(bx, vy, vz, ids.glass);
-            chunk.set_voxel(x1, vy, vz, ids.glass);
-        }
-    }
-
-    // flat roof
-    fill(chunk, bx, y1 + 1, bz, x1, y1 + 1, z1, roof_id);
-}
-
-// Skyscraper: tall glass tower with dark corner pillars and a spire
-fn skyscraper(chunk: &mut Chunk, bx: i32, bz: i32, ground: i32, ids: &Ids) {
-    let w = 7;
-    let h = 24;
-    let x1 = bx + w - 1;
-    let z1 = bz + w - 1;
-    let y1 = ground + h;
-
-    // glass walls
-    walls(chunk, bx, ground, bz, x1, y1, z1, ids.glass);
-
-    // dark corner pillars
-    for (px, pz) in [(bx, bz), (x1, bz), (bx, z1), (x1, z1)] {
-        col(chunk, px, pz, ground, y1, ids.dark_stone);
-    }
-
-    // roof
-    fill(chunk, bx, y1 + 1, bz, x1, y1 + 1, z1, ids.dark_stone);
-
-    // spire
-    let mx = bx + w / 2;
-    let mz = bz + w / 2;
-    col(chunk, mx, mz, y1 + 2, y1 + 6, ids.dark_stone);
-    chunk.set_voxel(mx, y1 + 7, mz, ids.brick);
-}
-
 // ── city stage ────────────────────────────────────────────────────────────────
+//
+// Chunk layout (each = 16×16 voxels, default chunk_size):
+//
+//   chunk [cx, cz] → world origin bx = cx*16, bz = cz*16
+//   ground = 13  (stone×10 + dirt×2 + grass×1, surface at y=12, build from y=13)
+//
+//   Road: a 4-wide stone strip runs along world X axis at Z = 8..11
+//         and along world Z axis at X = 8..11
+//         These run through chunk [0,0] only — simple and clean.
+//
+//   Buildings placed in chunks away from [0,0]:
+//     [1,0]  = office block (east of road)
+//     [-1,0] = office block (west of road)
+//     [0,1]  = skyscraper (north of road)
+//     [0,-1] = shops (south of road)
+//
+//   Each building is offset 2 blocks from the chunk edge so there's a gap.
 
 struct CityStage;
 
@@ -123,95 +74,118 @@ impl ChunkStage for CityStage {
             stone:      reg.get_block_by_name("Stone").id,
             brick:      reg.get_block_by_name("Brick").id,
             glass:      reg.get_block_by_name("Glass").id,
-            wood:       reg.get_block_by_name("Wood").id,
             dark_stone: reg.get_block_by_name("Dark Stone").id,
             cobble:     reg.get_block_by_name("Cobblestone").id,
         };
 
-        let ground = 13;
-        let Vec3(bx, _, bz) = chunk.min; // world-space origin of this chunk
+        // terrain: stone×10, dirt×2, grass×1 → surface at y=12, build from y=13
+        let g = 13;
+        let Vec3(bx, _, bz) = chunk.min;
+        let cx = chunk.coords.0;
+        let cz = chunk.coords.1;
 
-        match (chunk.coords.0, chunk.coords.1) {
-
-            // ── Chunk [0,0]: castle ──────────────────────────────────────────
+        match (cx, cz) {
+            // ── [0,0]: road intersection only ────────────────────────────────
             (0, 0) => {
-                let cx = bx + 8;
-                let cz = bz + 8;
-                let r = 7_i32;
-
-                walls(&mut chunk, cx - r, ground, cz - r, cx + r, ground + 7, cz + r, ids.cobble);
-                fill(&mut chunk, cx - r + 1, ground, cz - r + 1, cx + r - 1, ground, cz + r - 1, ids.stone);
-
-                for i in -r..=r {
-                    if i % 2 == 0 {
-                        chunk.set_voxel(cx + i, ground + 8, cz - r, ids.cobble);
-                        chunk.set_voxel(cx + i, ground + 8, cz + r, ids.cobble);
-                        chunk.set_voxel(cx - r, ground + 8, cz + i, ids.cobble);
-                        chunk.set_voxel(cx + r, ground + 8, cz + i, ids.cobble);
-                    }
-                }
-
-                for (tx, tz) in [(cx-r-1, cz-r-1), (cx+r-2, cz-r-1),
-                                  (cx-r-1, cz+r-2), (cx+r-2, cz+r-2)] {
-                    walls(&mut chunk, tx, ground, tz, tx + 3, ground + 11, tz + 3, ids.brick);
-                    fill(&mut chunk, tx, ground + 12, tz, tx + 3, ground + 12, tz + 3, ids.dark_stone);
-                }
-
-                walls(&mut chunk, cx - 3, ground, cz - 3, cx + 3, ground + 14, cz + 3, ids.brick);
-                fill(&mut chunk, cx - 2, ground + 1, cz - 2, cx + 2, ground + 1, cz + 2, ids.wood);
-
-                for vy in [ground + 4, ground + 8, ground + 12] {
-                    for vx in [cx - 2, cx, cx + 2] {
-                        chunk.set_voxel(vx, vy, cz - 3, ids.glass);
-                        chunk.set_voxel(vx, vy, cz + 3, ids.glass);
-                    }
-                    for vz in [cz - 2, cz, cz + 2] {
-                        chunk.set_voxel(cx - 3, vy, vz, ids.glass);
-                        chunk.set_voxel(cx + 3, vy, vz, ids.glass);
-                    }
-                }
-                fill(&mut chunk, cx - 3, ground + 15, cz - 3, cx + 3, ground + 15, cz + 3, ids.dark_stone);
-                col(&mut chunk, cx, cz, ground + 16, ground + 20, ids.dark_stone);
-                chunk.set_voxel(cx, ground + 21, cz, ids.brick);
-
-                for vy in ground..=ground + 3 {
-                    chunk.set_voxel(cx, vy, cz - r, 0);
-                    chunk.set_voxel(cx + 1, vy, cz - r, 0);
-                }
+                // E-W road: 4 wide along Z axis, full chunk X span
+                fill(&mut chunk, bx, g - 1, bz + 6, bx + 15, g, bz + 9, ids.stone);
+                // N-S road: 4 wide along X axis, full chunk Z span
+                fill(&mut chunk, bx + 6, g - 1, bz, bx + 9, g, bz + 15, ids.stone);
             }
 
-            // ── Chunk [1,0]: skyscraper + office ────────────────────────────
+            // ── [1,0]: office block east, road on west edge ──────────────────
+            // Road is in [0,0] so no road in this chunk.
+            // E-W road continues: fill Z=6..9 on low-X end of this chunk too.
             (1, 0) => {
-                skyscraper(&mut chunk, bx + 2, bz + 2, ground, &ids);
-                building(&mut chunk, bx + 2, bz + 11, 7, 4, 7, ground, ids.cobble, ids.dark_stone, &ids);
+                fill(&mut chunk, bx, g - 1, bz + 6, bx + 15, g, bz + 9, ids.stone);
+                // Office: 10 wide, 8 deep, 8 tall. Placed at bx+3, bz+2
+                // (away from road strip at bz+6..9 on south side)
+                let ox = bx + 3;
+                let oz = bz + 2; // north side of chunk, away from road
+                walls(&mut chunk, ox, g, oz, ox + 9, g + 7, oz + 5, ids.dark_stone);
+                // glass windows every 2 floors
+                for vy in [g + 2, g + 5] {
+                    for vx in ox + 1..ox + 9 {
+                        chunk.set_voxel(vx, vy, oz, ids.glass);
+                        chunk.set_voxel(vx, vy, oz + 5, ids.glass);
+                    }
+                    for vz in oz + 1..oz + 5 {
+                        chunk.set_voxel(ox, vy, vz, ids.glass);
+                        chunk.set_voxel(ox + 9, vy, vz, ids.glass);
+                    }
+                }
+                fill(&mut chunk, ox, g + 8, oz, ox + 9, g + 8, oz + 5, ids.cobble);
             }
 
-            // ── Chunk [0,1]: two offices ─────────────────────────────────────
-            (0, 1) => {
-                building(&mut chunk, bx + 1, bz + 1, 6, 5, 8, ground, ids.brick, ids.wood, &ids);
-                building(&mut chunk, bx + 9, bz + 1, 6, 5, 8, ground, ids.brick, ids.wood, &ids);
-                building(&mut chunk, bx + 3, bz + 9, 10, 4, 5, ground, ids.dark_stone, ids.cobble, &ids);
-            }
-
-            // ── Chunk [1,1]: skyscraper cluster ──────────────────────────────
-            (1, 1) => {
-                skyscraper(&mut chunk, bx + 1, bz + 1, ground, &ids);
-                building(&mut chunk, bx + 9, bz + 2, 5, 5, 10, ground, ids.dark_stone, ids.cobble, &ids);
-                building(&mut chunk, bx + 2, bz + 9, 5, 5, 6, ground, ids.brick, ids.wood, &ids);
-            }
-
-            // ── Chunk [-1,0]: offices west ───────────────────────────────────
+            // ── [-1,0]: office block west ─────────────────────────────────────
             (-1, 0) => {
-                building(&mut chunk, bx + 2, bz + 2, 7, 5, 9, ground, ids.brick, ids.wood, &ids);
-                building(&mut chunk, bx + 2, bz + 9, 7, 5, 6, ground, ids.cobble, ids.dark_stone, &ids);
+                fill(&mut chunk, bx, g - 1, bz + 6, bx + 15, g, bz + 9, ids.stone);
+                let ox = bx + 3;
+                let oz = bz + 2;
+                walls(&mut chunk, ox, g, oz, ox + 9, g + 7, oz + 5, ids.brick);
+                for vy in [g + 2, g + 5] {
+                    for vx in ox + 1..ox + 9 {
+                        chunk.set_voxel(vx, vy, oz, ids.glass);
+                        chunk.set_voxel(vx, vy, oz + 5, ids.glass);
+                    }
+                    for vz in oz + 1..oz + 5 {
+                        chunk.set_voxel(ox, vy, vz, ids.glass);
+                        chunk.set_voxel(ox + 9, vy, vz, ids.glass);
+                    }
+                }
+                fill(&mut chunk, ox, g + 8, oz, ox + 9, g + 8, oz + 5, ids.cobble);
             }
 
-            // ── Chunk [0,-1]: shops south ────────────────────────────────────
+            // ── [0,1]: skyscraper north ───────────────────────────────────────
+            (0, 1) => {
+                fill(&mut chunk, bx + 6, g - 1, bz, bx + 9, g, bz + 15, ids.stone);
+                // Skyscraper: 8×8, 16 tall. Centred in chunk at bx+4, bz+4
+                let ox = bx + 4;
+                let oz = bz + 4;
+                walls(&mut chunk, ox, g, oz, ox + 7, g + 15, oz + 7, ids.glass);
+                // dark stone corner columns
+                for (px, pz) in [(ox, oz), (ox + 7, oz), (ox, oz + 7), (ox + 7, oz + 7)] {
+                    col(&mut chunk, px, pz, g, g + 15, ids.dark_stone);
+                }
+                // floor bands every 4
+                for vy in [g + 4, g + 8, g + 12] {
+                    for vx in ox..=ox + 7 {
+                        chunk.set_voxel(vx, vy, oz, ids.dark_stone);
+                        chunk.set_voxel(vx, vy, oz + 7, ids.dark_stone);
+                    }
+                    for vz in oz..=oz + 7 {
+                        chunk.set_voxel(ox, vy, vz, ids.dark_stone);
+                        chunk.set_voxel(ox + 7, vy, vz, ids.dark_stone);
+                    }
+                }
+                // roof + spire
+                fill(&mut chunk, ox, g + 16, oz, ox + 7, g + 16, oz + 7, ids.dark_stone);
+                col(&mut chunk, ox + 3, oz + 3, g + 17, g + 22, ids.dark_stone);
+                chunk.set_voxel(ox + 3, g + 23, oz + 3, ids.brick);
+            }
+
+            // ── [0,-1]: small shops south ─────────────────────────────────────
             (0, -1) => {
-                building(&mut chunk, bx + 1, bz + 2, 5, 4, 4, ground, ids.brick, ids.wood, &ids);
-                building(&mut chunk, bx + 7, bz + 2, 5, 4, 4, ground, ids.brick, ids.wood, &ids);
-                building(&mut chunk, bx + 1, bz + 9, 5, 4, 5, ground, ids.cobble, ids.stone, &ids);
-                building(&mut chunk, bx + 7, bz + 9, 5, 4, 5, ground, ids.cobble, ids.stone, &ids);
+                fill(&mut chunk, bx + 6, g - 1, bz, bx + 9, g, bz + 15, ids.stone);
+                // Two shops side by side
+                for (ox, oz) in [(bx + 1, bz + 2), (bx + 9, bz + 2)] {
+                    walls(&mut chunk, ox, g, oz, ox + 5, g + 4, oz + 5, ids.brick);
+                    chunk.set_voxel(ox + 2, g, oz, 0);
+                    chunk.set_voxel(ox + 2, g + 1, oz, 0);
+                    chunk.set_voxel(ox + 1, g + 2, oz, ids.glass);
+                    chunk.set_voxel(ox + 3, g + 2, oz, ids.glass);
+                    fill(&mut chunk, ox, g + 5, oz, ox + 5, g + 5, oz + 5, ids.cobble);
+                }
+            }
+
+            // ── [1,1]: streetlights in the corner ────────────────────────────
+            (1, 1) | (-1, 1) | (1, -1) | (-1, -1) => {
+                // Streetlight pole at corner near road
+                let lx = if cx > 0 { bx + 1 } else { bx + 14 };
+                let lz = if cz > 0 { bz + 1 } else { bz + 14 };
+                col(&mut chunk, lx, lz, g, g + 5, ids.dark_stone);
+                chunk.set_voxel(lx + 1, g + 5, lz, ids.dark_stone);
+                chunk.set_voxel(lx + 2, g + 5, lz, ids.cobble);
             }
 
             _ => {}
@@ -220,8 +194,6 @@ impl ChunkStage for CityStage {
         chunk
     }
 }
-
-// ── main ──────────────────────────────────────────────────────────────────────
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -235,8 +207,8 @@ async fn main() -> std::io::Result<()> {
     let cobble     = Block::new("Cobblestone").id(8).build();
 
     let config = WorldConfig::new()
-        .min_chunk([-10, -10])
-        .max_chunk([10, 10])
+        .min_chunk([-16, -16])
+        .max_chunk([16, 16])
         .time_per_day(24000)
         .default_time(6000.0)
         .build();

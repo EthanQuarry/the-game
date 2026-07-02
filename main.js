@@ -25,11 +25,6 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio || 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
-world.add(ambientLight);
-const sunLight = new THREE.DirectionalLight(0xfff5e0, 2.5);
-sunLight.position.set(100, 200, 100);
-world.add(sunLight);
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -53,6 +48,23 @@ const rigidControls = new VOXELIZE.RigidControls(
 );
 rigidControls.connect(inputs, "in-game");
 
+const perspectives = new VOXELIZE.Perspective(rigidControls, world);
+perspectives.connect(inputs, "in-game");
+
+const shadows = new VOXELIZE.Shadows(world);
+const lightShined = new VOXELIZE.LightShined(world);
+
+function createCharacter() {
+  const character = new VOXELIZE.Character();
+  world.add(character);
+  lightShined.add(character);
+  shadows.add(character);
+  return character;
+}
+
+const mainCharacter = createCharacter();
+rigidControls.attachCharacter(mainCharacter);
+
 inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
 
@@ -61,27 +73,65 @@ rigidControls.on("unlock", () => inputs.setNamespace("menu"));
 
 const overlay = document.getElementById("overlay");
 
-// Set namespace and isLocked immediately on click so WASD works even if
-// the browser (common on Linux) silently rejects the pointer lock request.
 canvas.addEventListener("click", () => {
   overlay.classList.add("hidden");
   rigidControls.isLocked = true;
   inputs.setNamespace("in-game");
+  canvas.requestPointerLock();
 });
 
-document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement === canvas) {
-    overlay.classList.add("hidden");
-  } else {
-    // Only show overlay and disable movement if pointer lock was actually
-    // granted before and is now released (Escape key).
-    if (rigidControls.isLocked) {
-      rigidControls.isLocked = false;
-      inputs.setNamespace("menu");
-      overlay.classList.remove("hidden");
-    }
-  }
+// Escape key shows overlay and pauses
+inputs.bind("Escape", () => {
+  rigidControls.isLocked = false;
+  inputs.setNamespace("menu");
+  overlay.classList.remove("hidden");
+  document.exitPointerLock();
+}, "in-game", { occasion: "keydown" });
+
+// ── Drag-to-look fallback (works without pointer lock) ────────────────────────
+// Mirrors RigidControls.onMouseMove exactly: mutates rigidControls.euler and
+// rigidControls.quaternion directly so the internal update loop picks it up.
+const PI_2 = Math.PI / 2;
+const euler = new THREE.Euler(0, 0, 0, "YXZ");
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!rigidControls.isLocked) return;
+  // Only activate drag fallback when pointer lock is NOT active
+  if (document.pointerLockElement === canvas) return;
+  isDragging = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
 });
+
+document.addEventListener("mouseup", () => { isDragging = false; });
+
+document.addEventListener("mousemove", (e) => {
+  // If pointer lock is active, RigidControls handles it natively
+  if (document.pointerLockElement === canvas) return;
+  if (!isDragging || !rigidControls.isLocked) return;
+
+  const dx = e.clientX - lastMouseX;
+  const dy = e.clientY - lastMouseY;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+
+  const sensitivity = 0.002;
+  euler.setFromQuaternion(rigidControls.quaternion);
+  euler.y -= dx * sensitivity;
+  euler.x -= dy * sensitivity;
+  euler.x = Math.max(PI_2 - Math.PI * 0.99, Math.min(PI_2 - Math.PI * 0.01, euler.x));
+  rigidControls.quaternion.setFromEuler(euler);
+});
+
+const fpsEl = document.createElement("div");
+fpsEl.id = "fps";
+document.body.appendChild(fpsEl);
+
+let frameCount = 0;
+let lastFpsTime = performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
@@ -91,11 +141,21 @@ function animate() {
       camera.getWorldPosition(new THREE.Vector3()),
       camera.getWorldDirection(new THREE.Vector3())
     );
-
     rigidControls.update();
+    perspectives.update();
+    lightShined.update();
+    shadows.update();
   }
 
   renderer.render(world, camera);
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 500) {
+    fpsEl.textContent = `${Math.round(frameCount * 1000 / (now - lastFpsTime))} fps`;
+    frameCount = 0;
+    lastFpsTime = now;
+  }
 }
 
 async function start() {
@@ -106,9 +166,9 @@ async function start() {
 
   await world.initialize();
 
-  // Spawn just outside the castle's south gateway
+  // Spawn on the road in front of the east office building
   world.addChunkInitListener([0, 0], () => {
-    rigidControls.teleportToTop(0, -12);
+    rigidControls.teleportToTop(8, 8);
   });
 
   world.sky.setShadingPhases([
