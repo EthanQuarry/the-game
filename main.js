@@ -1,5 +1,4 @@
 import * as VOXELIZE from "@voxelize/core";
-import "@voxelize/core/dist/styles.css";
 import * as THREE from "three";
 
 import "./style.css";
@@ -48,7 +47,6 @@ const rigidControls = new VOXELIZE.RigidControls(
   }
 );
 rigidControls.connect(inputs, "in-game");
-network.register(rigidControls);
 
 const perspectives = new VOXELIZE.Perspective(rigidControls, world);
 perspectives.connect(inputs, "in-game");
@@ -67,402 +65,49 @@ function createCharacter() {
 const mainCharacter = createCharacter();
 rigidControls.attachCharacter(mainCharacter);
 
-// ── NPC system ────────────────────────────────────────────────────────────────
-// Set to true to enable LLM-driven NPCs (requires Rust server on port 4001
-// with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION set).
-// See README.md for setup instructions.
-const NPC_LLM_ENABLED = false;
+// NPC
+const npc = createCharacter();
+npc.username = "Villager";
+npc.bodyColor = "#4a7c59";
 
-const NPC_API = "http://localhost:4001";
+const NPC_SPAWN = new THREE.Vector3(12, 0, 12);
+const NPC_RADIUS = 8;
+const NPC_SPEED = 0.015;
+let npcAngle = 0;
+let npcPos = NPC_SPAWN.clone();
+let npcGroundY = null;
 
-// Generate a stable random player ID for this session
-const playerId = Math.random().toString(36).slice(2, 10);
-const playerName = "Player" + playerId.slice(0, 4);
-
-// ── A* pathfinding ────────────────────────────────────────────────────────────
-
-function astar(startX, startZ, goalX, goalZ) {
-  const MAX_DIST = 30;
-  if (Math.abs(goalX - startX) + Math.abs(goalZ - startZ) > MAX_DIST * 2) return [];
-
-  const key = (x, z) => `${x},${z}`;
-  const open = new Map();
-  const closed = new Set();
-  const cameFrom = new Map();
-  const gScore = new Map();
-  const fScore = new Map();
-
-  const sx = Math.round(startX), sz = Math.round(startZ);
-  const gx = Math.round(goalX),  gz = Math.round(goalZ);
-
-  const h = (x, z) => Math.abs(x - gx) + Math.abs(z - gz);
-
-  gScore.set(key(sx, sz), 0);
-  fScore.set(key(sx, sz), h(sx, sz));
-  open.set(key(sx, sz), { x: sx, z: sz });
-
-  let iters = 0;
-  while (open.size > 0 && iters++ < 800) {
-    // Pick lowest fScore from open
-    let best = null, bestF = Infinity;
-    for (const [k, node] of open) {
-      const f = fScore.get(k) ?? Infinity;
-      if (f < bestF) { bestF = f; best = { k, node }; }
-    }
-    if (!best) break;
-
-    const { k: currKey, node: curr } = best;
-    if (curr.x === gx && curr.z === gz) {
-      // Reconstruct path
-      const path = [];
-      let c = currKey;
-      while (cameFrom.has(c)) {
-        const [cx, cz] = c.split(",").map(Number);
-        path.unshift([cx, cz]);
-        c = cameFrom.get(c);
-      }
-      return path;
-    }
-
-    open.delete(currKey);
-    closed.add(currKey);
-
-    for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      const nx = curr.x + dx, nz = curr.z + dz;
-      const nk = key(nx, nz);
-      if (closed.has(nk)) continue;
-      if (Math.abs(nx - sx) + Math.abs(nz - sz) > MAX_DIST) continue;
-
-      // Obstacle check: solid block at foot or head height
-      const blocked = world.isInitialized && (
-        world.getVoxelAt(nx, 13, nz) !== 0 ||
-        world.getVoxelAt(nx, 14, nz) !== 0
-      );
-      if (blocked) continue;
-
-      const tentG = (gScore.get(currKey) ?? Infinity) + 1;
-      if (tentG < (gScore.get(nk) ?? Infinity)) {
-        cameFrom.set(nk, currKey);
-        gScore.set(nk, tentG);
-        fScore.set(nk, tentG + h(nx, nz));
-        open.set(nk, { x: nx, z: nz });
-      }
-    }
-  }
-  return []; // no path
-}
-
-// ── NPC state ─────────────────────────────────────────────────────────────────
-
-const npcs = new Map(); // npc_id → { character, waypoints, path, targetPos, speechBubble, bubbleTimeout }
-
-const THOMAS_WAYPOINTS = {
-  market:  [12, 13, 12],
-  well:    [28, 13, 12],
-  shelter: [12, 13, 28],
-  road:    [8,  13, 8],
-};
-
-function createNpc(id, name, spawnPos) {
-  const character = createCharacter();
-  character.username = name;
-
-  // Position NPC at spawn
-  character.set(spawnPos, [0, 0, 1]);
-  character.update();
-
-  // Speech bubble DOM element
-  const bubble = document.createElement("div");
-  bubble.className = "speech-bubble hidden";
-  bubble.innerHTML = `<div class="npc-name">${name}</div><div class="bubble-text"></div>`;
-  document.body.appendChild(bubble);
-
-  npcs.set(id, {
-    character,
-    id,
-    name,
-    pos: new THREE.Vector3(...spawnPos),
-    targetPos: new THREE.Vector3(...spawnPos),
-    path: [],
-    pathIndex: 0,
-    speechBubble: bubble,
-    bubbleTimeout: null,
-    lastSpeech: null,
-    actionType: "patrol",
-  });
-  return npcs.get(id);
-}
-
-// Create Thomas
-createNpc("thomas", "Thomas", [12, 13, 12]);
-
-// ── NPC movement & animation ──────────────────────────────────────────────────
-
-const NPC_WALK_SPEED = 0.06; // blocks per frame
-
-function updateNpcMovement(npcState, dt) {
-  const { character, path, pos, targetPos } = npcState;
-
-  if (path.length > 0 && npcState.pathIndex < path.length) {
-    const [wx, wz] = path[npcState.pathIndex];
-    const wy = 13;
-    const dx = wx - pos.x;
-    const dz = wz - pos.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-
-    if (dist < 0.15) {
-      npcState.pathIndex++;
-    } else {
-      const step = Math.min(NPC_WALK_SPEED, dist);
-      pos.x += (dx / dist) * step;
-      pos.z += (dz / dist) * step;
-      pos.y = wy;
-      character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
-    }
-  } else {
-    // Idle: face a neutral direction
-    character.set([pos.x, pos.y, pos.z], [0, 0, 1]);
-  }
-
-  character.update();
-}
-
-// ── Speech bubbles ─────────────────────────────────────────────────────────────
-
-function showSpeechBubble(npcState, text) {
-  const { speechBubble } = npcState;
-  speechBubble.querySelector(".bubble-text").textContent = text;
-  speechBubble.classList.remove("hidden", "fading");
-
-  clearTimeout(npcState.bubbleTimeout);
-  npcState.bubbleTimeout = setTimeout(() => {
-    speechBubble.classList.add("fading");
-    setTimeout(() => speechBubble.classList.add("hidden"), 600);
-  }, 6000);
-}
-
-function updateBubblePosition(npcState) {
-  const { speechBubble, pos } = npcState;
-  if (speechBubble.classList.contains("hidden")) return;
-
-  const worldPos = new THREE.Vector3(pos.x, pos.y + 2.2, pos.z);
-  worldPos.project(camera);
-
-  if (worldPos.z > 1) { // behind camera
-    speechBubble.style.display = "none";
-    return;
-  }
-  speechBubble.style.display = "";
-  const sx = ( worldPos.x * 0.5 + 0.5) * window.innerWidth;
-  const sy = (-worldPos.y * 0.5 + 0.5) * window.innerHeight;
-  speechBubble.style.left = sx + "px";
-  speechBubble.style.top  = sy + "px";
-}
-
-// ── NPC state broadcast (SSE) ─────────────────────────────────────────────────
-
-let npcEventSource = null;
-
-function connectNpcEvents() {
-  if (npcEventSource) npcEventSource.close();
-  npcEventSource = new EventSource(`${NPC_API}/npc-events`);
-
-  npcEventSource.onmessage = (e) => {
-    let data;
-    try { data = JSON.parse(e.data); } catch { return; }
-
-    const npcState = npcs.get(data.npc_id);
-    if (!npcState) return;
-
-    npcState.actionType = data.action_type;
-
-    // Handle movement
-    if (data.action_type === "move_to_waypoint" && data.waypoint) {
-      const wp = THOMAS_WAYPOINTS[data.waypoint];
-      if (wp) {
-        const [tx, , tz] = wp;
-        const newPath = astar(npcState.pos.x, npcState.pos.z, tx, tz);
-        if (newPath.length > 0) {
-          npcState.path = newPath;
-          npcState.pathIndex = 0;
-        }
-      }
-    } else if (data.action_type === "move_toward" && data.speech_target) {
-      // Move toward a specific player
-      const targetPlayer = getPlayerPos(data.speech_target);
-      if (targetPlayer) {
-        const newPath = astar(npcState.pos.x, npcState.pos.z, targetPlayer[0], targetPlayer[2]);
-        if (newPath.length > 0) {
-          npcState.path = newPath;
-          npcState.pathIndex = 0;
-        }
-      }
-    } else if (data.action_type === "move_away") {
-      // Stop current path, handled by idle
-      npcState.path = [];
-      npcState.pathIndex = 0;
-    } else if (data.action_type === "idle" || data.action_type === "patrol") {
-      // On patrol: cycle through waypoints client-side if no specific move command
-      if (data.action_type === "patrol" && npcState.path.length === 0) {
-        const wps = Object.values(THOMAS_WAYPOINTS);
-        const idx = Math.floor(Math.random() * wps.length);
-        const [tx, , tz] = wps[idx];
-        const newPath = astar(npcState.pos.x, npcState.pos.z, tx, tz);
-        if (newPath.length > 0) { npcState.path = newPath; npcState.pathIndex = 0; }
-      }
-    }
-
-    // Handle speech
-    if (data.action_type === "speak" && data.speech) {
-      showSpeechBubble(npcState, data.speech);
-      npcState.lastSpeech = data.speech;
-
-      // If dialog is open for this NPC, update it
-      if (activeNpcDialog === data.npc_id) {
-        const dialogText = document.getElementById("dialog-text");
-        dialogText.textContent = data.speech;
-        dialogText.classList.remove("thinking");
-      }
-    }
-  };
-
-  npcEventSource.onerror = () => {
-    // Reconnect after 3s
-    setTimeout(connectNpcEvents, 3000);
-  };
-}
-
-// Track player positions for move_toward
-const playerPositions = new Map(); // player_id → [x, y, z]
-
-function getPlayerPos(playerId) {
-  if (playerId === playerId) {
-    const p = rigidControls.position;
-    return [p.x, p.y, p.z];
-  }
-  return playerPositions.get(playerId) || null;
-}
-
-// ── Player position reporting ─────────────────────────────────────────────────
-
-let playerUpdateTimer = 0;
-
-function reportPlayerPosition() {
-  if (!NPC_LLM_ENABLED || !world.isInitialized) return;
-  const p = rigidControls.position;
-  fetch(`${NPC_API}/player-update`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: playerId, name: playerName, pos: [p.x, p.y, p.z] }),
-  }).catch(() => {});
-}
-
-window.addEventListener("beforeunload", () => {
-  if (!NPC_LLM_ENABLED) return;
-  fetch(`${NPC_API}/player-leave`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: playerId }),
-  }).catch(() => {});
+world.addChunkInitListener([0, 0], () => {
+  npcGroundY = world.getVoxelByWorld(
+    Math.floor(NPC_SPAWN.x),
+    Math.floor(NPC_SPAWN.y + 80),
+    Math.floor(NPC_SPAWN.z)
+  );
+  npcPos.set(NPC_SPAWN.x, NPC_SPAWN.y, NPC_SPAWN.z);
 });
 
-// ── Dialog (press E) ──────────────────────────────────────────────────────────
+function updateNPC() {
+  npcAngle += NPC_SPEED;
+  const tx = NPC_SPAWN.x + Math.cos(npcAngle) * NPC_RADIUS;
+  const tz = NPC_SPAWN.z + Math.sin(npcAngle) * NPC_RADIUS;
 
-let activeNpcDialog = null; // npc_id currently in dialog
-const dialogEl = document.getElementById("dialog");
-const dialogName = document.getElementById("dialog-name");
-const dialogText = document.getElementById("dialog-text");
-const dialogInput = document.getElementById("dialog-input");
-
-function openDialog(npcId) {
-  const npcState = npcs.get(npcId);
-  if (!npcState) return;
-  activeNpcDialog = npcId;
-  dialogName.textContent = npcState.name;
-  dialogText.textContent = npcState.lastSpeech || "...";
-  dialogText.classList.remove("thinking");
-  dialogInput.value = "";
-  dialogEl.classList.remove("hidden");
-  // Release pointer lock so player can type
-  document.exitPointerLock();
-  rigidControls.isLocked = false;
-  inputs.setNamespace("menu");
-  setTimeout(() => dialogInput.focus(), 50);
-}
-
-function closeDialog() {
-  activeNpcDialog = null;
-  dialogEl.classList.add("hidden");
-  dialogInput.value = "";
-}
-
-function sendDialogMessage() {
-  const msg = dialogInput.value.trim();
-  if (!msg || !activeNpcDialog) return;
-  dialogInput.value = "";
-
-  if (!NPC_LLM_ENABLED) {
-    dialogText.textContent = "(LLM disabled — set NPC_LLM_ENABLED = true in main.js)";
-    return;
+  // keep on ground via world height query
+  let ty = npcPos.y;
+  if (world.isInitialized) {
+    const col = world.getMaxHeightAt(tx, tz);
+    if (col !== null && col !== undefined) ty = col + npc.eyeHeight;
   }
 
-  dialogText.textContent = "...";
-  dialogText.classList.add("thinking");
-
-  fetch(`${NPC_API}/npc-message`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      npc_id: activeNpcDialog,
-      player_id: playerId,
-      player_name: playerName,
-      message: msg,
-    }),
-  }).catch(() => {
-    dialogText.textContent = "(couldn't reach server)";
-    dialogText.classList.remove("thinking");
-  });
+  const dx = tx - npcPos.x;
+  const dz = tz - npcPos.z;
+  const len = Math.sqrt(dx * dx + dz * dz) || 1;
+  npcPos.set(tx, ty, tz);
+  npc.set([tx, ty, tz], [dx / len, 0, dz / len]);
+  npc.update();
 }
-
-dialogInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); sendDialogMessage(); }
-  if (e.key === "Escape") { closeDialog(); }
-});
-
-// E key: open dialog with nearest NPC if within range
-inputs.bind("KeyE", () => {
-  if (activeNpcDialog) { closeDialog(); return; }
-  const playerPos = rigidControls.position;
-  let nearest = null, nearestDist = Infinity;
-  for (const [id, npcState] of npcs) {
-    const dx = npcState.pos.x - playerPos.x;
-    const dz = npcState.pos.z - playerPos.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist < 4 && dist < nearestDist) { nearest = id; nearestDist = dist; }
-  }
-  if (nearest) openDialog(nearest);
-}, "in-game");
-
-// Close dialog if player walks away
-function checkDialogDistance() {
-  if (!activeNpcDialog) return;
-  const npcState = npcs.get(activeNpcDialog);
-  if (!npcState) { closeDialog(); return; }
-  const playerPos = rigidControls.position;
-  const dx = npcState.pos.x - playerPos.x;
-  const dz = npcState.pos.z - playerPos.z;
-  if (Math.sqrt(dx * dx + dz * dz) > 6) closeDialog();
-}
-
-const debug = new VOXELIZE.Debug(document.body);
-debug.registerDisplay("Position", rigidControls, "voxel");
-debug.registerDisplay("Render radius", world, "renderRadius");
-debug.registerDisplay("Chunks loaded", () => world.chunkPipeline?.loadedCount ?? world.chunks?.size ?? "?");
-debug.registerDisplay("Chunks processing", () => world.chunkPipeline?.processingCount ?? "?");
 
 inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
-inputs.bind("KeyJ", debug.toggle, "*");
 
 rigidControls.on("lock", () => inputs.setNamespace("in-game"));
 rigidControls.on("unlock", () => inputs.setNamespace("menu"));
@@ -541,21 +186,7 @@ function animate() {
     perspectives.update();
     lightShined.update();
     shadows.update();
-    debug.update();
-
-    // Update all NPCs
-    for (const npcState of npcs.values()) {
-      updateNpcMovement(npcState);
-      updateBubblePosition(npcState);
-    }
-    checkDialogDistance();
-
-    // Report player position to server every ~500ms
-    playerUpdateTimer += 16;
-    if (playerUpdateTimer >= 500) {
-      playerUpdateTimer = 0;
-      reportPlayerPosition();
-    }
+    updateNPC();
   }
 
   renderer.render(world, camera);
@@ -576,9 +207,7 @@ async function start() {
   await network.join("tutorial");
 
   await world.initialize();
-  world.renderRadius = 16;
-
-  if (NPC_LLM_ENABLED) connectNpcEvents();
+  world.renderRadius = 32;
 
   // Float in place until chunk [0,0] is ready, then land on the road
   rigidControls.toggleGhostMode();
