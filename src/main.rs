@@ -100,52 +100,105 @@ impl ChunkStage for SFDistrictStage {
         let cz = chunk.coords.1;
 
         match (cx, cz) {
-            // ── Bay water (entire z=-2 row) ────────────────────────────────
+            // ── Bay water + Golden Gate Bridge (entire z=-2 row) ───────────────
             (_, -2) => {
-                // Flood entire column with water
-                fill(&mut chunk, bx, 0, bz, bx + 15, g, bz + 15, ids.water);
-                // Road deck where bridge passes (x world coords 6..9 relative to chunk -1 and +1)
-                let road_x0 = bx + 6;
-                let road_x1 = bx + 9;
-                if road_x0 >= bx && road_x1 <= bx + 15 {
-                    fill(&mut chunk, road_x0, g, bz, road_x1, g, bz + 15, ids.plank);
+                // Bay: clear the old grass/soil down to a visible water surface.
+                // Water surface is one block below the bridge deck so the bridge is obvious.
+                fill(&mut chunk, bx, 0, bz, bx + 15, g - 2, bz + 15, ids.water);
+
+                // Golden Gate orientation in this small map:
+                // Bridge runs east-west across chunks x=-2..=2, centered at z=-24.
+                // The actual bridge is much longer, but this keeps the iconic silhouette.
+                let deck_z0 = bz + 6;
+                let deck_z1 = bz + 10;
+                let deck_y = g + 3;
+
+                // Wide red-orange road deck / bridge span.
+                fill(&mut chunk, bx, deck_y, deck_z0, bx + 15, deck_y, deck_z1, ids.orange_concrete);
+
+                // Dark asphalt driving lane down the center.
+                fill(&mut chunk, bx, deck_y + 1, bz + 7, bx + 15, deck_y + 1, bz + 9, ids.dark_stone);
+
+                // Side pedestrian rails.
+                fill(&mut chunk, bx, deck_y + 2, deck_z0, bx + 15, deck_y + 2, deck_z0, ids.steel);
+                fill(&mut chunk, bx, deck_y + 2, deck_z1, bx + 15, deck_y + 2, deck_z1, ids.steel);
+
+                // Under-deck truss: red-orange lower beam plus diagonal steel bracing.
+                fill(&mut chunk, bx, deck_y - 2, deck_z0, bx + 15, deck_y - 1, deck_z0, ids.orange_concrete);
+                fill(&mut chunk, bx, deck_y - 2, deck_z1, bx + 15, deck_y - 1, deck_z1, ids.orange_concrete);
+                for lx in 0..=15 {
+                    let wx = bx + lx;
+                    let truss_y = if lx % 4 < 2 { deck_y - 1 } else { deck_y - 2 };
+                    chunk.set_voxel(wx, truss_y, deck_z0 + 1, ids.steel);
+                    chunk.set_voxel(wx, truss_y, deck_z1 - 1, ids.steel);
                 }
-                // Bridge towers + cables
-                // Tower sits in the middle of the chunk (local z=6..8)
-                // The main suspension cable runs along the tower top as a horizontal beam,
-                // with vertical hanger cables dropping at every 2 blocks along z.
-                let build_tower = |chunk: &mut Chunk, tx: i32, tz: i32, ids: &SFIds| {
-                    // Tower body
-                    fill(chunk, tx, g, tz, tx + 2, g + 22, tz + 2, ids.orange_concrete);
-                    // Crossbeams at 1/3 and 2/3 height
-                    fill(chunk, tx - 1, g + 8,  tz, tx + 3, g + 8,  tz + 2, ids.orange_concrete);
-                    fill(chunk, tx - 1, g + 16, tz, tx + 3, g + 16, tz + 2, ids.orange_concrete);
-                    // Horizontal main cable along the full chunk z range at tower top
-                    for vz in bz..=bz + 15 {
-                        chunk.set_voxel(tx + 1, g + 22, vz, ids.dark_stone);
-                    }
-                    // Vertical hangers: drop from main cable to road deck, every 2 blocks
-                    // Catenary approximation: hanger length = shorter near tower, longer near ends
-                    let tower_mid_z = tz + 1;
-                    for vz in (bz..=bz + 15).step_by(2) {
-                        let dist = (vz - tower_mid_z).abs();
-                        // Hanger bottom sits higher near tower (dist=0) and lower farther away
-                        let hanger_bottom = (g + 22 - dist / 2).max(g + 2);
-                        for vy in hanger_bottom..g + 22 {
-                            chunk.set_voxel(tx + 1, vy, vz, ids.dark_stone);
-                        }
-                    }
+
+                // Concrete anchor blocks at both far ends of the bridge.
+                if cx == -2 {
+                    fill(&mut chunk, bx, deck_y - 1, deck_z0 - 1, bx + 3, deck_y + 7, deck_z1 + 1, ids.stone);
+                    fill(&mut chunk, bx + 4, deck_y, deck_z0, bx + 15, deck_y, deck_z1, ids.orange_concrete);
+                }
+                if cx == 2 {
+                    fill(&mut chunk, bx + 12, deck_y - 1, deck_z0 - 1, bx + 15, deck_y + 7, deck_z1 + 1, ids.stone);
+                    fill(&mut chunk, bx, deck_y, deck_z0, bx + 11, deck_y, deck_z1, ids.orange_concrete);
+                }
+
+                // Main towers at x=-16 and x=16, the recognizable Golden Gate features.
+                let build_golden_gate_tower = |chunk: &mut Chunk, tx: i32, ids: &SFIds| {
+                    let z_front = bz + 5;
+                    let z_back = bz + 11;
+                    let tower_bottom = deck_y - 3;
+                    let tower_top = g + 36;
+
+                    // Two tall Art Deco tower legs.
+                    fill(chunk, tx,     tower_bottom, z_front, tx + 2, tower_top, z_front + 2, ids.orange_concrete);
+                    fill(chunk, tx,     tower_bottom, z_back - 2, tx + 2, tower_top, z_back, ids.orange_concrete);
+
+                    // Tall vertical slit openings through each leg.
+                    fill(chunk, tx + 1, g + 8,  z_front + 1, tx + 1, g + 18, z_front + 1, 0);
+                    fill(chunk, tx + 1, g + 8,  z_back - 1,  tx + 1, g + 18, z_back - 1,  0);
+                    fill(chunk, tx + 1, g + 21, z_front + 1, tx + 1, g + 30, z_front + 1, 0);
+                    fill(chunk, tx + 1, g + 21, z_back - 1,  tx + 1, g + 30, z_back - 1,  0);
+
+                    // Horizontal tower crossbeams between the legs.
+                    fill(chunk, tx - 1, g + 8,  z_front, tx + 3, g + 10, z_back, ids.orange_concrete);
+                    fill(chunk, tx - 1, g + 20, z_front, tx + 3, g + 22, z_back, ids.orange_concrete);
+                    fill(chunk, tx - 1, g + 32, z_front, tx + 3, g + 34, z_back, ids.orange_concrete);
+
+                    // Small cap on top.
+                    fill(chunk, tx - 1, tower_top + 1, z_front, tx + 3, tower_top + 2, z_back, ids.orange_concrete);
                 };
 
                 if cx == -1 {
-                    build_tower(&mut chunk, bx + 6, bz + 6, &ids);
+                    build_golden_gate_tower(&mut chunk, bx + 14, &ids);
                 }
                 if cx == 1 {
-                    build_tower(&mut chunk, bx + 6, bz + 6, &ids);
+                    build_golden_gate_tower(&mut chunk, bx, &ids);
                 }
-                // Beach sand strip along north edge of water (z=-2, top row)
-                if cx != -1 && cx != 1 {
-                    // Already water — just keep it
+
+                // Curved suspension cables and vertical hangers, drawn per chunk.
+                // Cable is highest at the two towers and lower near mid-span/anchors.
+                for wx in bx..=bx + 15 {
+                    let nearest_tower_dist = (wx + 16).abs().min((wx - 16).abs());
+                    let cable_y = (g + 34 - nearest_tower_dist / 2).max(g + 20);
+
+                    // Two main cables, one over each side of the deck.
+                    chunk.set_voxel(wx, cable_y, deck_z0, ids.steel);
+                    chunk.set_voxel(wx, cable_y, deck_z1, ids.steel);
+
+                    // Vertical suspender cables every 2 blocks.
+                    if wx % 2 == 0 {
+                        for vy in deck_y + 3..=cable_y {
+                            chunk.set_voxel(wx, vy, deck_z0, ids.steel);
+                            chunk.set_voxel(wx, vy, deck_z1, ids.steel);
+                        }
+                    }
+                }
+
+                // Red-orange approach guide posts along the whole bridge so it reads from distance.
+                for wx in (bx..=bx + 15).step_by(4) {
+                    col(&mut chunk, wx, deck_z0, deck_y + 1, deck_y + 5, ids.orange_concrete);
+                    col(&mut chunk, wx, deck_z1, deck_y + 1, deck_y + 5, ids.orange_concrete);
                 }
             }
 
