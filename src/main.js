@@ -1018,6 +1018,9 @@ async function startVoice(npcId) {
   voiceWs.onmessage = (e) => {
     if (typeof e.data === "string") {
       _handleRealtimeEvent(JSON.parse(e.data));
+    } else {
+      // Binary frame = MP3 chunk from ElevenLabs
+      _collectMp3Chunk(e.data);
     }
   };
 
@@ -1025,52 +1028,53 @@ async function startVoice(npcId) {
   voiceWs.onerror = () => { stopVoice(); };
 }
 
+let _mp3Chunks = [];
+
 function _handleRealtimeEvent(ev) {
-  if (ev.type === "response.audio.delta" && ev.delta) {
-    // base64-encoded PCM16 audio chunk — queue it for playback
-    const raw = atob(ev.delta);
-    const buf = new Int16Array(raw.length / 2);
-    for (let i = 0; i < buf.length; i++) {
-      buf[i] = (raw.charCodeAt(i * 2)) | (raw.charCodeAt(i * 2 + 1) << 8);
-    }
-    voiceOutQueue.push(buf);
-    if (!voicePlaying) _drainAudioQueue();
-  }
-  if (ev.type === "response.audio_transcript.delta" && ev.delta) {
-    // Show NPC transcript in speech bubble as it arrives
+  if (ev.type === "transcript.delta" && ev.delta) {
+    // Live transcript — update speech bubble as LLM generates text
     const npc = npcs.get(voiceNpcId);
     if (npc) {
-      const current = npc.lastSpeech || "";
-      const updated = current + ev.delta;
-      npc.lastSpeech = updated;
-      showSpeechBubble(npc, updated);
+      npc.lastSpeech = (npc.lastSpeech || "") + ev.delta;
+      showSpeechBubble(npc, npc.lastSpeech);
     }
   }
-  if (ev.type === "response.audio_transcript.done" && ev.transcript) {
-    // Final transcript — also queue to NPC memory via existing message system
-    fetch(`${NPC_API}/npc-message`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ npc_id: voiceNpcId, player_id: playerId, player_name: "[VOICE_RESPONSE]", message: ev.transcript }),
-    }).catch(() => {});
+  if (ev.type === "audio.start") {
+    _mp3Chunks = [];
+    // Reset speech bubble for new response
+    const npc = npcs.get(voiceNpcId);
+    if (npc) npc.lastSpeech = "";
+  }
+  if (ev.type === "audio.done") {
+    _playMp3Buffer();
   }
 }
 
-function _drainAudioQueue() {
-  if (voiceOutQueue.length === 0) { voicePlaying = false; return; }
-  voicePlaying = true;
-  if (!voiceOutCtx) voiceOutCtx = new AudioContext({ sampleRate: 24000 });
+function _collectMp3Chunk(arrayBuffer) {
+  _mp3Chunks.push(new Uint8Array(arrayBuffer));
+}
 
-  const chunk = voiceOutQueue.shift();
-  const floats = new Float32Array(chunk.length);
-  for (let i = 0; i < chunk.length; i++) floats[i] = chunk[i] / 32768;
+async function _playMp3Buffer() {
+  if (_mp3Chunks.length === 0) return;
+  // Concatenate all MP3 chunks into one buffer
+  const totalLen = _mp3Chunks.reduce((s, c) => s + c.length, 0);
+  const combined = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of _mp3Chunks) { combined.set(chunk, offset); offset += chunk.length; }
+  _mp3Chunks = [];
 
-  const buf = voiceOutCtx.createBuffer(1, floats.length, 24000);
-  buf.copyToChannel(floats, 0);
-  const src = voiceOutCtx.createBufferSource();
-  src.buffer = buf;
-  src.connect(voiceOutCtx.destination);
-  src.onended = _drainAudioQueue;
-  src.start();
+  if (!voiceOutCtx) voiceOutCtx = new AudioContext();
+  try {
+    const decoded = await voiceOutCtx.decodeAudioData(combined.buffer);
+    const src = voiceOutCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(voiceOutCtx.destination);
+    voicePlaying = true;
+    src.onended = () => { voicePlaying = false; };
+    src.start();
+  } catch (e) {
+    voicePlaying = false;
+  }
 }
 
 function _startMicCapture() {

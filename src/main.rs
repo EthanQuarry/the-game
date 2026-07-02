@@ -1528,18 +1528,21 @@ async fn handle_player_leave(
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }
 
-// ── /npc-voice — WebSocket proxy to OpenAI Realtime API ──────────────────────
+// ── /npc-voice — mic → OpenAI Realtime (text only) → ElevenLabs S2S TTS ──────
 //
-// Browser connects here with ?npc_id=thomas&player_name=Alice.
-// We open a second WebSocket to OpenAI Realtime, inject the NPC's
-// personality as the system prompt, then relay all frames bidirectionally.
-// The API key never reaches the browser.
+// Pipeline:
+//   Browser PCM16 mic → OpenAI Realtime (STT + LLM, text output only)
+//   → on response.text.done → ElevenLabs streaming TTS (NPC voice ID)
+//   → MP3 audio chunks → browser
+//
+// Both API keys stay server-side.
 
 async fn handle_npc_voice(
     req: actix_web::HttpRequest,
     stream: web::Payload,
     npc_map: web::Data<NpcMap>,
     openai_key: web::Data<String>,
+    el_key: web::Data<String>,
 ) -> actix_web::Result<HttpResponse> {
     use tokio_tungstenite::tungstenite::protocol::Message as TMsg;
     use futures_util::{SinkExt, StreamExt};
@@ -1557,26 +1560,26 @@ async fn handle_npc_voice(
         .replace('+', " ")
         .to_string();
 
-    // NPC voice + speech style per character
-    struct NpcVoiceConfig { voice: &'static str, style: &'static str }
+    // Per-NPC ElevenLabs voice ID + speech style hint for the LLM
+    struct NpcVoiceConfig { el_voice_id: &'static str, style: &'static str }
     let voice_config: NpcVoiceConfig = match npc_id.as_str() {
         "thomas" => NpcVoiceConfig {
-            voice: "echo", // deep, gruff
-            style: "Speak like a rambling, heavily intoxicated old homeless man. Slur your words slightly, ramble, lose your train of thought mid-sentence, occasionally cough or grunt. Use rough language.",
+            el_voice_id: "29vD33N1CtxCmqQRPOHJ", // "Drew" — gruff older male
+            style: "Speak like a rambling, heavily intoxicated old homeless man. Slur your words, ramble, lose your train of thought. Use rough language. Keep it to 1-2 sentences.",
         },
         "marcus" => NpcVoiceConfig {
-            voice: "onyx", // deep, authoritative
-            style: "Speak like a calm, street-smart drug dealer. Short sentences. Guarded. Never raise your voice.",
+            el_voice_id: "TxGEqnHWrfWFTfGW9XjX", // "Josh" — deep, calm
+            style: "Speak like a calm street-smart drug dealer. Short sentences. Guarded. 1-2 sentences max.",
         },
         "diane" => NpcVoiceConfig {
-            voice: "nova", // warm, maternal
-            style: "Speak like a tired but sharp bodega owner. A little impatient but kind underneath.",
+            el_voice_id: "EXAVITQu4vr4xnSDxMaL", // "Bella" — warm female
+            style: "Speak like a tired but sharp bodega owner. A little impatient but kind. 1-2 sentences.",
         },
         "ray" => NpcVoiceConfig {
-            voice: "fable", // older, measured
-            style: "Speak like a weary pawnshop owner who's seen everything. Dry, deadpan, suspicious of everyone.",
+            el_voice_id: "VR6AewLTigWG4xSOukaG", // "Arnold" — older, dry
+            style: "Speak like a weary pawnshop owner who's seen everything. Dry, deadpan. 1-2 sentences.",
         },
-        _ => NpcVoiceConfig { voice: "alloy", style: "" },
+        _ => NpcVoiceConfig { el_voice_id: "21m00Tcm4TlvDq8ikWAM", style: "" }, // "Rachel"
     };
 
     // Look up NPC personality
@@ -1594,51 +1597,41 @@ async fn handle_npc_voice(
     };
 
     let system_prompt = format!(
-        "{}\n\n{}\n\nYou are speaking with {}. Keep responses short — 1-2 sentences max since this is real-time voice.",
+        "{}\n\n{}\n\nYou are speaking with {}. Keep responses to 1-2 sentences — this is real-time voice.",
         personality, voice_config.style, player_name
     );
-    let voice = voice_config.voice;
+    let el_voice_id = voice_config.el_voice_id.to_string();
 
     // Upgrade browser connection
     let (response, mut session, mut client_stream) = actix_ws::handle(&req, stream)?;
 
-    let key = openai_key.get_ref().clone();
+    let openai_key = openai_key.get_ref().clone();
+    let el_key = el_key.get_ref().clone();
 
     actix_web::rt::spawn(async move {
         use tokio_tungstenite::connect_async;
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+        // ── Connect to OpenAI Realtime (text output only — no audio out) ──────
         let url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
         let mut openai_req = url.into_client_request().unwrap();
-        openai_req.headers_mut().insert(
-            "Authorization",
-            format!("Bearer {}", key).parse().unwrap(),
-        );
-        openai_req.headers_mut().insert(
-            "OpenAI-Beta",
-            "realtime=v1".parse().unwrap(),
-        );
+        openai_req.headers_mut().insert("Authorization", format!("Bearer {}", openai_key).parse().unwrap());
+        openai_req.headers_mut().insert("OpenAI-Beta", "realtime=v1".parse().unwrap());
 
         let (openai_ws, _) = match connect_async(openai_req).await {
             Ok(r) => r,
-            Err(e) => {
-                eprintln!("[voice] OpenAI connect failed: {e}");
-                let _ = session.close(None).await;
-                return;
-            }
+            Err(e) => { eprintln!("[voice] OpenAI connect failed: {e}"); let _ = session.close(None).await; return; }
         };
 
         let (mut openai_sink, mut openai_stream) = openai_ws.split();
 
-        // Send session config with NPC personality
+        // Text-only modality — no audio out from OpenAI; ElevenLabs handles TTS
         let session_update = serde_json::json!({
             "type": "session.update",
             "session": {
-                "modalities": ["text", "audio"],
+                "modalities": ["text"],
                 "instructions": system_prompt,
-                "voice": voice,
                 "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
                 "input_audio_transcription": { "model": "whisper-1" },
                 "turn_detection": {
                     "type": "server_vad",
@@ -1650,24 +1643,15 @@ async fn handle_npc_voice(
         });
         let _ = openai_sink.send(TMsg::Text(session_update.to_string())).await;
 
-        // Relay browser → OpenAI in background
+        // ── Browser → OpenAI: forward PCM16 mic audio ─────────────────────────
         let mut openai_sink2 = openai_sink;
-        let mut session2 = session.clone();
         actix_web::rt::spawn(async move {
             while let Some(Ok(msg)) = client_stream.next().await {
                 match msg {
                     actix_ws::Message::Binary(b) => {
-                        // Raw PCM16 audio from browser — wrap in Realtime event
                         let encoded = base64_encode(&b);
-                        let event = serde_json::json!({
-                            "type": "input_audio_buffer.append",
-                            "audio": encoded,
-                        });
+                        let event = serde_json::json!({ "type": "input_audio_buffer.append", "audio": encoded });
                         if openai_sink2.send(TMsg::Text(event.to_string())).await.is_err() { break; }
-                    }
-                    actix_ws::Message::Text(t) => {
-                        // Control messages from browser (e.g. commit buffer)
-                        if openai_sink2.send(TMsg::Text(t.to_string())).await.is_err() { break; }
                     }
                     actix_ws::Message::Close(_) => { break; }
                     _ => {}
@@ -1676,20 +1660,85 @@ async fn handle_npc_voice(
             let _ = openai_sink2.close().await;
         });
 
-        // Relay OpenAI → browser
-        while let Some(Ok(msg)) = openai_stream.next().await {
-            match msg {
-                TMsg::Text(t) => {
-                    if session2.text(t).await.is_err() { break; }
+        // ── OpenAI → ElevenLabs → browser ─────────────────────────────────────
+        let http_client = reqwest::Client::builder().use_rustls_tls().build().unwrap();
+        let mut accumulated_text = String::new();
+
+        while let Some(Ok(TMsg::Text(raw))) = openai_stream.next().await {
+            let ev: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(v) => v, Err(_) => continue,
+            };
+            let ev_type = ev["type"].as_str().unwrap_or("");
+
+            // Stream transcript deltas to browser so speech bubble updates live
+            if ev_type == "response.text.delta" {
+                if let Some(delta) = ev["delta"].as_str() {
+                    accumulated_text.push_str(delta);
+                    let msg = serde_json::json!({ "type": "transcript.delta", "delta": delta });
+                    if session.text(msg.to_string()).await.is_err() { break; }
                 }
-                TMsg::Binary(b) => {
-                    if session2.binary(b).await.is_err() { break; }
+            }
+
+            // On full response — send text to ElevenLabs streaming TTS
+            if ev_type == "response.text.done" {
+                if let Some(text) = ev["text"].as_str() {
+                    accumulated_text = text.to_string();
                 }
-                TMsg::Close(_) => { break; }
-                _ => {}
+                if accumulated_text.is_empty() { continue; }
+                let text_to_speak = std::mem::take(&mut accumulated_text);
+
+                // ElevenLabs streaming TTS — returns MP3 chunks
+                let el_url = format!(
+                    "https://api.elevenlabs.io/v1/text-to-speech/{}/stream",
+                    el_voice_id
+                );
+                let body = serde_json::json!({
+                    "text": text_to_speak,
+                    "model_id": "eleven_turbo_v2_5",
+                    "voice_settings": {
+                        "stability": 0.4,
+                        "similarity_boost": 0.8,
+                        "style": 0.5,
+                        "use_speaker_boost": true
+                    }
+                });
+
+                let el_resp = match http_client
+                    .post(&el_url)
+                    .header("xi-api-key", &el_key)
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "audio/mpeg")
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => { eprintln!("[voice] ElevenLabs request failed: {e}"); continue; }
+                };
+
+                if !el_resp.status().is_success() {
+                    eprintln!("[voice] ElevenLabs error: {}", el_resp.status());
+                    continue;
+                }
+
+                // Signal browser that audio is starting
+                let start_msg = serde_json::json!({ "type": "audio.start" });
+                if session.text(start_msg.to_string()).await.is_err() { break; }
+
+                // Stream MP3 chunks to browser as binary frames
+                let mut resp_stream = el_resp.bytes_stream();
+                use futures_util::StreamExt as _;
+                while let Some(Ok(chunk)) = resp_stream.next().await {
+                    if session.binary(chunk).await.is_err() { break; }
+                }
+
+                // Signal browser audio is done
+                let done_msg = serde_json::json!({ "type": "audio.done" });
+                if session.text(done_msg.to_string()).await.is_err() { break; }
             }
         }
-        let _ = session2.close(None).await;
+
+        let _ = session.close(None).await;
     });
 
     Ok(response)
@@ -1843,12 +1892,14 @@ async fn main() -> std::io::Result<()> {
 
     // HTTP API on port 4001 (Voxelize WS on 4000)
     let openai_key = Arc::new(std::env::var("OPENAI_API_KEY").unwrap_or_default());
+    let el_key = Arc::new(std::env::var("ELEVENLABS_API_KEY").unwrap_or_default());
     let http_server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(Arc::clone(&npc_map_clone)))
             .app_data(web::Data::new(Arc::clone(&players_clone)))
             .app_data(web::Data::new(broadcast_tx_clone.clone()))
             .app_data(web::Data::new((*openai_key).clone()))
+            .app_data(web::Data::new((*el_key).clone()))
             .wrap(
                 actix_web::middleware::DefaultHeaders::new()
                     .add(("Access-Control-Allow-Origin", "*"))
