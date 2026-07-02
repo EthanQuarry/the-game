@@ -229,7 +229,7 @@ export function refreshHotbar() {
     hotbar.setObject(0, i, previewMesh);
 
     let label = item.count > 1 ? `×${item.count}` : "";
-    if (item.id === "pistol") label = `${item.data.ammo}/${item.data.maxAmmo}`;
+    if (item.data && item.data.maxAmmo != null) label = `${item.data.ammo}/${item.data.maxAmmo}`;
     hotbar.setSubscript(0, i, label);
   }
 }

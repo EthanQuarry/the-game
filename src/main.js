@@ -71,10 +71,15 @@ const perspective = new VOXELIZE.Perspective(controls, world, {
 // Don't call perspective.connect — it binds KeyC (now crouch) and adds "second" state.
 // We manually bind V to toggle between first ↔ third only.
 inputs.bind("KeyV", () => {
-  if (perspective.state === "first") {
-    perspective.state = "third";
-  } else {
-    perspective.state = "first";
+  // Toggle between first and third only, skip "second"
+  perspective.state = perspective.state === "first" ? "third" : "first";
+  const isFirst = perspective.state === "first";
+  // Show/hide gun and hand based on perspective
+  if (currentWeaponKey) gunGroups[currentWeaponKey].visible = isFirst;
+  fpHand.visible = isFirst && !currentWeaponKey;
+  // Re-request pointer lock so mouse look keeps working
+  if (!document.pointerLockElement) {
+    canvas.requestPointerLock();
   }
 }, "in-game", { identifier: "perspective-toggle" });
 
@@ -277,7 +282,7 @@ controls.attachCharacter(mainCharacter);
 class GamePeers extends VOXELIZE.Peers {
   constructor(object) { super(object); }
   createPeer = () => makeCharacter("player");
-  onPeerUpdate = (peer, data) => peer.set(data.position, data.direction);
+  onPeerUpdate = (peer, data, { username } = {}) => { peer.set(data.position, data.direction); if (username && peer.username !== username) peer.username = username; };
   packInfo = () => {
     const q = new THREE.Quaternion();
     const p = new THREE.Vector3();
@@ -299,15 +304,24 @@ network.register(peers);
 // ── Transparent sort (fixes glass rendering) ─────────────────────────────────
 renderer.setTransparentSort(VOXELIZE.TRANSPARENT_SORT(controls.object));
 
+// ── Voxelize Events (custom client↔server messaging) ─────────────────────────
+const events = new VOXELIZE.Events();
+network.register(events);
+
 // ── NPC system ────────────────────────────────────────────────────────────────
 
 const NPC_LLM_ENABLED = true;
-// Auto-detect server so it works locally and on deployed domains
+// Auto-detect server so it works locally (http) and on deployed domains (https)
 const _host = window.location.hostname;
-const NPC_API = `http://${_host}:4001`;
-const VOXELIZE_SERVER = `http://${_host}:4000`;
-const playerId   = Math.random().toString(36).slice(2, 10);
-const playerName = "Player" + playerId.slice(0, 4);
+const _https = window.location.protocol === 'https:';
+const VOXELIZE_SERVER = _https ? window.location.origin : `http://${_host}:4000`;
+const NPC_API         = _https ? `${window.location.origin}/npc` : `http://${_host}:4001`;
+
+
+
+
+const playerId = Math.random().toString(36).slice(2, 10);
+let playerName = "Player" + playerId.slice(0, 4); // overwritten by welcome screen
 
 // A* pathfinder (flat terrain, ground at y=13)
 function astar(sx, sz, gx, gz) {
@@ -707,6 +721,150 @@ debug.registerDisplay("Chunks loaded",   () => world.chunks?.loaded?.size   ?? "
 debug.registerDisplay("Chunks requested",() => world.chunks?.requested?.size ?? "?");
 debug.registerDisplay("Render radius",   world, "renderRadius");
 
+// ── Health / PvP system ───────────────────────────────────────────────────────
+
+const MAX_HP = 100;
+let localHp = MAX_HP;
+let localDead = false;
+const peerHp = new Map(); // peerId → { hp, maxHp, barEl }
+
+// Local health bar
+const healthHudEl = document.createElement("div");
+healthHudEl.id = "health-hud";
+document.body.appendChild(healthHudEl);
+
+function renderLocalHealthBar() {
+  const pct = Math.max(0, localHp / MAX_HP);
+  const color = pct > 0.5 ? "#4caf50" : pct > 0.25 ? "#ff9800" : "#f44336";
+  healthHudEl.innerHTML = `<div class="hb-label">♥ ${localHp}</div><div class="hb-track"><div class="hb-fill" style="width:${pct*100}%;background:${color}"></div></div>`;
+}
+renderLocalHealthBar();
+
+// Kill feed
+const killfeedEl = document.createElement("div");
+killfeedEl.id = "killfeed";
+document.body.appendChild(killfeedEl);
+
+function showKillfeedEntry(text) {
+  const el = document.createElement("div");
+  el.className = "kf-entry";
+  el.textContent = text;
+  killfeedEl.prepend(el);
+  setTimeout(() => el.classList.add("kf-fade"), 2500);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// Floating HP bar above peer
+function makePeerHpBar() {
+  const bar = document.createElement("div");
+  bar.className = "peer-hpbar";
+  bar.innerHTML = `<div class="phb-fill"></div>`;
+  bar.style.display = "none";
+  document.body.appendChild(bar);
+  return bar;
+}
+
+function updatePeerHpBarDOM(entry) {
+  if (!entry.barEl) return;
+  const pct = Math.max(0, entry.hp / entry.maxHp);
+  const fill = entry.barEl.querySelector(".phb-fill");
+  if (fill) {
+    fill.style.width = `${pct * 100}%`;
+    fill.style.background = pct > 0.5 ? "#4caf50" : pct > 0.25 ? "#ff9800" : "#f44336";
+  }
+  entry.barEl.style.display = (entry.hp <= 0 || entry.hp >= entry.maxHp) ? "none" : "block";
+}
+
+function updatePeerHpBarPosition(peerId) {
+  const entry = peerHp.get(peerId);
+  if (!entry || entry.hp >= entry.maxHp || entry.hp <= 0) return;
+  const character = peers.map.get(peerId);
+  if (!character) return;
+  const worldPos = new THREE.Vector3();
+  character.getWorldPosition(worldPos);
+  worldPos.y += (character.totalHeight ?? 1.8) + 0.35;
+  worldPos.project(camera);
+  if (worldPos.z > 1) { entry.barEl.style.display = "none"; return; }
+  entry.barEl.style.display = "block";
+  entry.barEl.style.left = ((worldPos.x * 0.5 + 0.5) * window.innerWidth) + "px";
+  entry.barEl.style.top  = ((-worldPos.y * 0.5 + 0.5) * window.innerHeight) + "px";
+}
+
+// Damage flash
+const dmgFlashEl = document.createElement("div");
+dmgFlashEl.id = "damage-flash";
+document.body.appendChild(dmgFlashEl);
+
+function flashDamage() {
+  dmgFlashEl.classList.add("active");
+  setTimeout(() => dmgFlashEl.classList.remove("active"), 220);
+}
+
+// Death / respawn screen
+const deathScreenEl = document.createElement("div");
+deathScreenEl.id = "death-screen";
+deathScreenEl.innerHTML = `<div class="ds-box"><h2>YOU DIED</h2><p>Respawning in 3s...</p></div>`;
+deathScreenEl.style.display = "none";
+document.body.appendChild(deathScreenEl);
+
+function triggerDeath() {
+  if (localDead) return;
+  localDead = true;
+  controls.isLocked = false;
+  document.exitPointerLock();
+  deathScreenEl.style.display = "flex";
+  setTimeout(() => {
+    deathScreenEl.style.display = "none";
+    localDead = false;
+    localHp = MAX_HP;
+    renderLocalHealthBar();
+    controls.teleportToTop(8, 8);
+    events.emit("player-respawn", {});
+    setTimeout(() => { controls.isLocked = true; canvas.requestPointerLock(); inputs.setNamespace("in-game"); }, 100);
+  }, 3000);
+}
+
+// Server → client health events
+events.on("health-update", (raw) => {
+  const d = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (d.player_id === peers.ownID) {
+    const prev = localHp;
+    localHp = d.hp;
+    renderLocalHealthBar();
+    if (d.hp < prev) flashDamage();
+    if (d.hp <= 0) triggerDeath();
+  } else {
+    let entry = peerHp.get(d.player_id);
+    if (!entry) {
+      entry = { hp: d.max_hp, maxHp: d.max_hp, barEl: makePeerHpBar() };
+      peerHp.set(d.player_id, entry);
+    }
+    const prev = entry.hp;
+    entry.hp = d.hp;
+    entry.maxHp = d.max_hp;
+    updatePeerHpBarDOM(entry);
+    if (d.killed) {
+      const char = peers.map.get(d.player_id);
+      const name = char?.username || d.player_id.slice(0, 6);
+      showKillfeedEntry(`${name} was killed`);
+    }
+  }
+});
+
+events.on("player-respawned", (raw) => {
+  const d = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (d.player_id === peers.ownID) return;
+  const entry = peerHp.get(d.player_id);
+  if (entry) { entry.hp = d.hp; entry.maxHp = d.max_hp; updatePeerHpBarDOM(entry); }
+});
+
+// Clean up HP bar when a peer disconnects
+peers.onPeerLeave = (id, _character) => {
+  const entry = peerHp.get(id);
+  if (entry?.barEl) entry.barEl.remove();
+  peerHp.delete(id);
+};
+
 // ── Gun system ────────────────────────────────────────────────────────────────
 
 const WEAPONS = {
@@ -715,27 +873,48 @@ const WEAPONS = {
     range: 64, spread: 0, pellets: 1,
     fireRate: 350, recoil: 0.012,
     tracerColor: 0xffee88,
+    reloadTime: 1200,
   },
   shotgun: {
     name: "Shotgun",
     range: 24, spread: 0.09, pellets: 6,
     fireRate: 900, recoil: 0.038,
     tracerColor: 0xff8844,
+    reloadTime: 2000,
   },
 };
 const weaponOrder = ["pistol", "shotgun"];
 let currentWeaponKey = null; // null = no weapon equipped
 let currentWeapon = null;
 let lastFireTime = 0;
+let isReloading = false;
+let reloadTimeout = null;
 
 // ── HUD refs ─────────────────────────────────────────────────────────────────
 const crosshairEl  = document.getElementById("crosshair");
 const weaponNameEl = document.getElementById("weapon-name");
 const weaponHudEl  = document.getElementById("weapon-hud");
+const weaponAmmoEl = document.getElementById("weapon-ammo");
 
 function showGunHUD(show) {
   crosshairEl.style.display  = show ? "block" : "none";
   weaponHudEl.style.display  = show ? "block" : "none";
+}
+
+function updateAmmoHUD() {
+  if (!currentWeaponKey) { weaponAmmoEl.textContent = ""; return; }
+  let ammo = 0, maxAmmo = 0;
+  for (let i = 0; i < 9; i++) {
+    const s = getSlot(i);
+    if (s && s.id === currentWeaponKey) { ammo = s.data.ammo; maxAmmo = s.data.maxAmmo; break; }
+  }
+  if (isReloading) {
+    weaponAmmoEl.textContent = "RELOADING...";
+    weaponAmmoEl.className = "reloading";
+  } else {
+    weaponAmmoEl.textContent = `${ammo} / ${maxAmmo}`;
+    weaponAmmoEl.className = ammo === 0 ? "empty" : "";
+  }
 }
 
 // ── View-model gun meshes ─────────────────────────────────────────────────────
@@ -791,12 +970,94 @@ function makeGunMesh(key) {
   return g;
 }
 
+// ── Detailed first-person hand ────────────────────────────────────────────────
+function makeDetailedHand() {
+  const group = new THREE.Group();
+  // Match player skin tone from SKINS.player
+  const skinColor = new THREE.Color(SKINS.player.opts.head.color);
+  const nailColor = skinColor.clone().lerp(new THREE.Color("#fff"), 0.35);
+  const knuckleColor = skinColor.clone().lerp(new THREE.Color("#000"), 0.12);
+  const skin = new THREE.MeshLambertMaterial({ color: skinColor });
+  const nail = new THREE.MeshLambertMaterial({ color: nailColor });
+  const knuckle = new THREE.MeshLambertMaterial({ color: knuckleColor });
+
+  const b = (w, h, d, mat = skin) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+
+  // Palm — slightly tapered, thick
+  const palm = b(0.11, 0.07, 0.13);
+  palm.position.set(0, 0, 0);
+  group.add(palm);
+
+  // Wrist / lower arm stub
+  const wrist = b(0.10, 0.065, 0.09);
+  wrist.position.set(0, 0, 0.11);
+  group.add(wrist);
+
+  // 4 fingers (index, middle, ring, pinky)
+  const fingerDefs = [
+    { x: -0.042, segments: [0.025, 0.022, 0.018], len: [0.052, 0.042, 0.032] },
+    { x: -0.014, segments: [0.026, 0.023, 0.019], len: [0.060, 0.048, 0.036] },
+    { x:  0.014, segments: [0.025, 0.022, 0.018], len: [0.056, 0.044, 0.034] },
+    { x:  0.042, segments: [0.020, 0.017, 0.014], len: [0.040, 0.032, 0.024] },
+  ];
+
+  for (const fd of fingerDefs) {
+    let zOff = -0.065; // forward from palm
+    for (let seg = 0; seg < 3; seg++) {
+      const w = fd.segments[seg];
+      const l = fd.len[seg];
+      // Main segment
+      const seg3 = b(w, 0.055, l);
+      seg3.position.set(fd.x, 0, zOff - l / 2);
+      group.add(seg3);
+      // Knuckle bump between segments
+      if (seg < 2) {
+        const kn = new THREE.Mesh(new THREE.SphereGeometry(w * 0.58, 6, 4), knuckle);
+        kn.scale.set(1, 0.75, 0.75);
+        kn.position.set(fd.x, 0.008, zOff);
+        group.add(kn);
+      }
+      // Nail on tip segment
+      if (seg === 2) {
+        const nl = b(w * 0.7, 0.012, l * 0.55, nail);
+        nl.position.set(fd.x, 0.032, zOff - l * 0.4);
+        group.add(nl);
+      }
+      zOff -= l;
+    }
+  }
+
+  // Thumb — angled outward
+  const thumbGroup = new THREE.Group();
+  thumbGroup.position.set(-0.07, -0.005, -0.02);
+  thumbGroup.rotation.z = -0.4;
+  thumbGroup.rotation.y = 0.3;
+  const t1 = b(0.024, 0.048, 0.048); t1.position.z = -0.024; thumbGroup.add(t1);
+  const t2 = b(0.022, 0.044, 0.038); t2.position.z = -0.067; thumbGroup.add(t2);
+  const tn = b(0.016, 0.010, 0.022, nail); tn.position.set(0, 0.026, -0.063); thumbGroup.add(tn);
+  group.add(thumbGroup);
+
+  // Overall orientation: hand faces forward, slight downward angle
+  group.rotation.x = 0.25;
+  group.rotation.y = 0.08;
+
+  return group;
+}
+
+// First-person hand (attached to camera, shown when no weapon)
+const fpHand = makeDetailedHand();
+fpHand.position.set(0.18, -0.28, -0.38);
+fpHand.userData.baseY = -0.28;
+fpHand.visible = false;
+camera.add(fpHand);
+
 const gunGroups = {};
 const muzzleFlashes = {};
 
 for (const key of weaponOrder) {
   const mesh = makeGunMesh(key);
   mesh.position.set(0.26, -0.22, -0.42);
+  mesh.userData.baseY = -0.22; // store so dip animation always restores correctly
   mesh.visible = false; // hidden until picked up
   camera.add(mesh);
   gunGroups[key] = mesh;
@@ -933,16 +1194,28 @@ function equipWeapon(key) {
   for (let i = 0; i < 9; i++) { const s = getSlot(i); if (s && s.id === key) { hasIt = true; break; } }
   if (!hasIt) return;
 
-  if (currentWeaponKey) gunGroups[currentWeaponKey].visible = false;
+  if (currentWeaponKey) {
+    gunGroups[currentWeaponKey].visible = false;
+    // Cancel any in-progress reload for the old weapon
+    if (isReloading) {
+      clearTimeout(reloadTimeout);
+      reloadTimeout = null;
+      isReloading = false;
+      const oldMesh = gunGroups[currentWeaponKey];
+      if (oldMesh) { oldMesh.rotation.x = 0; oldMesh.position.y = oldMesh.userData.baseY ?? -0.22; }
+    }
+  }
   currentWeaponKey = key;
   currentWeapon = WEAPONS[key];
   gunGroups[key].visible = perspective.state === "first";
+  fpHand.visible = false; // hide bare hand when weapon equipped
   weaponNameEl.textContent = currentWeapon.name;
+  updateAmmoHUD();
 
   const mesh = gunGroups[key];
-  const origY = mesh.position.y;
-  mesh.position.y = origY - 0.12;
-  setTimeout(() => { mesh.position.y = origY; }, 80);
+  const baseY = mesh.userData.baseY ?? -0.22;
+  mesh.position.y = baseY - 0.12;
+  setTimeout(() => { mesh.position.y = baseY; }, 80);
 }
 
 // Called by hotbar focus change to auto-equip/unequip based on what's in the slot
@@ -952,13 +1225,22 @@ function syncWeaponToSlot(slotIndex) {
   if (key) {
     equipWeapon(key);
   } else {
-    // Unequip — hide current gun
+    // Unequip — hide current gun, show bare hand
     if (currentWeaponKey) {
+      if (isReloading) {
+        clearTimeout(reloadTimeout);
+        reloadTimeout = null;
+        isReloading = false;
+        const m = gunGroups[currentWeaponKey];
+        if (m) { m.rotation.x = 0; m.position.y = m.userData.baseY ?? -0.22; }
+      }
       gunGroups[currentWeaponKey].visible = false;
       currentWeaponKey = null;
       currentWeapon = null;
       weaponNameEl.textContent = "";
+      weaponAmmoEl.textContent = "";
     }
+    fpHand.visible = perspective.state === "first";
   }
 }
 
@@ -969,31 +1251,132 @@ function cycleWeapon(dir) {
 }
 
 // ── Fire ─────────────────────────────────────────────────────────────────────
+
+const _ray = new THREE.Ray();
+const _hitBox = new THREE.Box3();
+const _peerWorldPos = new THREE.Vector3();
+
 function fireRay(dir) {
   const origin = new THREE.Vector3();
   controls.object.getWorldPosition(origin);
 
-  const hit = world.raycastVoxels(
+  // Check peers first — players take priority over voxels
+  _ray.set(origin, dir);
+  let closestPeerDist = currentWeapon.range;
+  let hitPeerId = null;
+  let hitPeerPoint = null;
+
+  peers.map.forEach((character, peerId) => {
+    character.getWorldPosition(_peerWorldPos);
+    const h = character.totalHeight ?? 1.8;
+    _hitBox.set(
+      new THREE.Vector3(_peerWorldPos.x - 0.45, _peerWorldPos.y,     _peerWorldPos.z - 0.45),
+      new THREE.Vector3(_peerWorldPos.x + 0.45, _peerWorldPos.y + h, _peerWorldPos.z + 0.45),
+    );
+    const intersect = new THREE.Vector3();
+    if (_ray.intersectBox(_hitBox, intersect)) {
+      const dist = origin.distanceTo(intersect);
+      if (dist < closestPeerDist) {
+        closestPeerDist = dist;
+        hitPeerId = peerId;
+        hitPeerPoint = intersect.clone();
+      }
+    }
+  });
+
+  // Voxel raycast
+  const voxHit = world.raycastVoxels(
     origin.toArray(), dir.toArray(),
     currentWeapon.range,
     { ignoreFluids: true, ignorePassables: true }
   );
+  const voxDist = voxHit ? origin.distanceTo(new THREE.Vector3(...voxHit.point)) : currentWeapon.range;
 
-  const endPt = hit
-    ? new THREE.Vector3(...hit.point)
+  // Player hit — only if closer than voxel wall
+  if (hitPeerId && closestPeerDist < voxDist) {
+    const dmg = currentWeaponKey === "shotgun" ? 15 : 25;
+    events.emit("player-hit", { target_id: hitPeerId, damage: dmg });
+    spawnHitSparks(hitPeerPoint.toArray(), [0, 1, 0]);
+    spawnTracer(origin.clone(), hitPeerPoint, 0xff3333);
+    const targetChar = peers.map.get(hitPeerId);
+    const targetName = targetChar?.username || hitPeerId.slice(0, 6);
+    showKillfeedEntry(`Hit ${targetName} -${dmg}hp`);
+    return;
+  }
+
+  // Voxel hit
+  const endPt = voxHit
+    ? new THREE.Vector3(...voxHit.point)
     : origin.clone().addScaledVector(dir, currentWeapon.range);
-
   spawnTracer(origin.clone(), endPt, currentWeapon.tracerColor);
-
-  if (hit) {
-    spawnHitSparks(hit.point, hit.normal);
-    const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(hit.voxel);
+  if (voxHit) {
+    spawnHitSparks(voxHit.point, voxHit.normal);
+    const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(voxHit.voxel);
     world.updateVoxel(vox[0], vox[1], vox[2], 0);
   }
 }
 
+// ── Gun fire / reload animations ──────────────────────────────────────────────
+function playFireAnimation(key) {
+  const mesh = gunGroups[key];
+  if (!mesh) return;
+  const baseY = mesh.userData.baseY ?? -0.22;
+  const baseZ = mesh.userData.baseZ ?? 0;
+  if (key === "pistol") {
+    // Sharp upward kick then settle back
+    mesh.rotation.x = -0.18;
+    setTimeout(() => { mesh.rotation.x = 0; }, 90);
+  } else {
+    // Shotgun pump — slide back then forward
+    mesh.position.z = baseZ + 0.06;
+    setTimeout(() => { mesh.position.z = baseZ; }, 220);
+    mesh.rotation.x = -0.12;
+    setTimeout(() => { mesh.rotation.x = 0; }, 180);
+  }
+}
+
+function startReload() {
+  if (!currentWeaponKey || isReloading) return;
+  // Check if already full
+  for (let i = 0; i < 9; i++) {
+    const s = getSlot(i);
+    if (s && s.id === currentWeaponKey) {
+      if (s.data.ammo === s.data.maxAmmo) return;
+      break;
+    }
+  }
+  isReloading = true;
+  updateAmmoHUD();
+
+  // Animate gun down during reload then back up
+  const mesh = gunGroups[currentWeaponKey];
+  const baseY = mesh ? (mesh.userData.baseY ?? -0.22) : -0.22;
+  if (mesh) {
+    mesh.position.y = baseY - 0.14;
+    mesh.rotation.x = 0.25;
+  }
+
+  const key = currentWeaponKey;
+  reloadTimeout = setTimeout(() => {
+    isReloading = false;
+    reloadTimeout = null;
+    // Restore ammo on the slot
+    for (let i = 0; i < 9; i++) {
+      const s = getSlot(i);
+      if (s && s.id === key) { s.data.ammo = s.data.maxAmmo; break; }
+    }
+    refreshHotbar();
+    updateAmmoHUD();
+    // Animate gun back up
+    if (mesh && currentWeaponKey === key) {
+      mesh.position.y = baseY;
+      mesh.rotation.x = 0;
+    }
+  }, currentWeapon.reloadTime);
+}
+
 function fireWeapon() {
-  if (!currentWeapon) return;
+  if (!currentWeapon || isReloading) return;
   const now = performance.now();
   if (now - lastFireTime < currentWeapon.fireRate) return;
 
@@ -1003,12 +1386,18 @@ function fireWeapon() {
     const s = getSlot(i);
     if (s && s.id === currentWeaponKey && s.data.ammo > 0) { ammoSlot = s; break; }
   }
-  if (!ammoSlot) return; // no gun or out of ammo
+  if (!ammoSlot) {
+    // Auto-reload on empty
+    startReload();
+    return;
+  }
 
   lastFireTime = now;
   ammoSlot.data.ammo -= 1;
   refreshHotbar();
+  updateAmmoHUD();
 
+  playFireAnimation(currentWeaponKey);
   spawnMuzzleFlash();
   applyRecoil(currentWeapon.recoil);
   flashCrosshair();
@@ -1031,9 +1420,14 @@ function fireWeapon() {
 }
 
 inputs.click("left", () => {
-  if (!controls.isLocked || activeNpcDialog) return;
+  if (!controls.isLocked || activeNpcDialog || localDead) return;
   fireWeapon();
 }, "in-game");
+
+inputs.bind("KeyR", () => {
+  if (!controls.isLocked || activeNpcDialog || localDead) return;
+  startReload();
+}, "in-game", { identifier: "reload" });
 
 inputs.scroll(
   () => cycleWeapon(-1),
@@ -1041,8 +1435,14 @@ inputs.scroll(
   "in-game"
 );
 
-inputs.bind("Digit1", () => equipWeapon("pistol"),  "in-game");
-inputs.bind("Digit2", () => equipWeapon("shotgun"), "in-game");
+// Number keys 1-9 select hotbar slot and auto-equip whatever's in it
+for (let i = 1; i <= 9; i++) {
+  const slotIdx = i - 1;
+  inputs.bind(`Digit${i}`, () => {
+    setFocusedSlot(slotIdx);
+    syncWeaponToSlot(slotIdx);
+  }, "in-game");
+}
 
 // ── Slide system (Sojourn-style) ──────────────────────────────────────────────
 
@@ -1161,6 +1561,7 @@ controls.on("unlock", () => {
 const overlay = document.getElementById("overlay");
 
 canvas.addEventListener("click", () => {
+  if (!welcomeScreen.classList.contains("hidden")) return; // welcome screen still up
   overlay.classList.add("hidden");
   controls.isLocked = true;
   inputs.setNamespace("in-game");
@@ -1215,16 +1616,13 @@ function animate() {
     controls.update();
     perspective.update();
 
-    // Silent Hill-style offset: shift camera right in 3rd person
-    if (perspective.state !== "first") {
-      camera.position.x += 1.4;  // world-space right offset (lerps naturally via Perspective)
-      camera.position.y += 0.3;  // slightly above shoulder height
-    }
 
     lightShined.update();
     shadows.update();
     peers.update();
     debug.update();
+    // Update floating HP bars above peers
+    peerHp.forEach((entry, peerId) => updatePeerHpBarPosition(peerId));
 
     for (const npc of npcs.values()) {
       updateNpcMovement(npc);
@@ -1301,6 +1699,7 @@ async function start() {
   world.addChunkInitListener([0, 0], () => {
     controls.teleportToTop(8, 8);
     if (controls.ghostMode) controls.toggleGhostMode();
+    fpHand.visible = true; // show bare hand on spawn (no weapon yet)
 
     // Spawn weapons on the ground — player must walk up and press E
     [
@@ -1354,6 +1753,54 @@ async function start() {
   await world.applyBlockTexture("Wood",        all,                           "/blocks/wood.png");
   await world.applyBlockTexture("Dark Stone",  all,                           "/blocks/dark_stone.png");
   await world.applyBlockTexture("Cobblestone", all,                           "/blocks/cobblestone.png");
+  await world.applyBlockTexture("Water",           all, "/blocks/water.png");
+  await world.applyBlockTexture("Sand",            all, "/blocks/dirt.png");
+  await world.applyBlockTexture("Plank",           all, "/blocks/plank.png");
+  await world.applyBlockTexture("Orange Concrete", all, "/blocks/orange_concrete.png");
+  await world.applyBlockTexture("White Concrete",  all, "/blocks/white_concrete.png");
+  await world.applyBlockTexture("Steel",           all, "/blocks/steel.png");
+  await world.applyBlockTexture("Tent Canvas",     all, "/blocks/tent_canvas.png");
+  await world.applyBlockTexture("Cardboard",       all, "/blocks/cardboard.png");
+  await world.applyBlockTexture("Lamp",            all, "/blocks/glass.png");
 }
 
-start();
+// ── Welcome screen ────────────────────────────────────────────────────────────
+
+const welcomeScreen = document.getElementById("welcome-screen");
+const welcomeNameEl = document.getElementById("welcome-name");
+const welcomeEnterBtn = document.getElementById("welcome-enter");
+const welcomeErrorEl = document.getElementById("welcome-error");
+
+function submitWelcome() {
+  const name = welcomeNameEl.value.trim();
+  if (!name) { welcomeErrorEl.textContent = "Pick a name first."; return; }
+  if (name.length < 2) { welcomeErrorEl.textContent = "At least 2 characters."; return; }
+
+  playerName = name;
+  mainCharacter.username = name;
+
+  welcomeScreen.classList.add("hidden");
+  // Kick off the game now
+  start();
+  // After a tick, lock the pointer
+  setTimeout(() => {
+    canvas.requestPointerLock();
+    controls.isLocked = true;
+    inputs.setNamespace("in-game");
+  }, 100);
+}
+
+welcomeEnterBtn.addEventListener("click", submitWelcome);
+welcomeNameEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitWelcome();
+});
+
+if (import.meta.env.DEV) {
+  // Skip welcome screen in dev — use a fixed name so HMR reloads don't interrupt
+  playerName = "dev";
+  mainCharacter.username = "dev";
+  welcomeScreen.classList.add("hidden");
+  start();
+} else {
+  welcomeNameEl.focus();
+}

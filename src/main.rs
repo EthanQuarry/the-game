@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
 use voxelize::{
-    Block, Chunk, ChunkStage, FlatlandStage, Registry, Resources, Server, Space,
-    VoxelAccess, Voxelize, World, WorldConfig, Vec3,
+    Block, Chunk, ChunkStage, ClientFilter, Event, FlatlandStage,
+    Registry, Resources, Server, Space, VoxelAccess, Voxelize, World, WorldConfig, Vec3,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -69,6 +69,7 @@ struct SFIds {
     steel:           u32,
     tent_canvas:     u32,
     cardboard:       u32,
+    lamp:            u32,
 }
 
 impl ChunkStage for SFDistrictStage {
@@ -92,6 +93,7 @@ impl ChunkStage for SFDistrictStage {
             steel:           reg.get_block_by_name("Steel").id,
             tent_canvas:     reg.get_block_by_name("Tent Canvas").id,
             cardboard:       reg.get_block_by_name("Cardboard").id,
+            lamp:            reg.get_block_by_name("Lamp").id,
         };
 
         let g = 13_i32; // first build layer above grass
@@ -143,9 +145,26 @@ impl ChunkStage for SFDistrictStage {
                 if cx == 1 {
                     build_tower(&mut chunk, bx + 6, bz + 6, &ids);
                 }
-                // Beach sand strip along north edge of water (z=-2, top row)
-                if cx != -1 && cx != 1 {
-                    // Already water — just keep it
+                // Bridge cable continuity: for non-tower water chunks, run the
+                // top horizontal cable at g+22 to span between towers.
+                // Tower x world coord = bx+7 for cx=-1 (bx=-16 → x=-9 world)
+                // and cx=+1 (bx=16 → x=23 world). Cable at x=-9 and x=23.
+                if cx == 0 {
+                    // Middle water chunk: cable at world x=7 (same x as cx=-1 tower: -16+6+1= -9 ... wait, cx=0 bx=0, so cable at x=7)
+                    for vz in bz..=bz + 15 {
+                        chunk.set_voxel(7, g + 22, vz, ids.dark_stone);
+                    }
+                    // Pier footing
+                    fill(&mut chunk, 6, 0, bz + 6, 8, g - 1, bz + 8, ids.dark_stone);
+                }
+                if cx == 2 {
+                    // East water chunk: cable at world x=23 (cx=1 tower: 16+6+1=23, so for cx=2 bx=32, local x=23-32=-9 → out of range)
+                    // Actually cx=2 bx=32: local cable x = 39 (bx+7=39 mirroring cx=1's tower at bx+6+1=23)
+                    // For symmetry run a continuation cable at x=7 (the near-centre x)
+                    for vz in bz..=bz + 15 {
+                        chunk.set_voxel(39, g + 22, vz, ids.dark_stone);
+                    }
+                    fill(&mut chunk, 38, 0, bz + 6, 40, g - 1, bz + 8, ids.dark_stone);
                 }
             }
 
@@ -156,7 +175,18 @@ impl ChunkStage for SFDistrictStage {
 
             // ── Alley / approach z=-1 cx=-2 ───────────────────────────────
             (-2, -1) => {
-                // Nothing special — keep grass
+                // Dumpsters against the east wall
+                fill(&mut chunk, bx + 13, g, bz + 4, bx + 14, g + 2, bz + 6, ids.dark_stone);
+                fill(&mut chunk, bx + 13, g, bz + 9, bx + 14, g + 2, bz + 11, ids.dark_stone);
+                // Rubble / debris scatter
+                chunk.set_voxel(bx + 10, g, bz + 3, ids.cobble);
+                chunk.set_voxel(bx + 11, g, bz + 4, ids.cobble);
+                chunk.set_voxel(bx + 9,  g, bz + 8, ids.cardboard);
+                chunk.set_voxel(bx + 12, g, bz + 12, ids.cardboard);
+                // "Graffiti" — brick patches on east fence line
+                chunk.set_voxel(bx + 15, g + 2, bz + 5, ids.brick);
+                chunk.set_voxel(bx + 15, g + 2, bz + 6, ids.brick);
+                chunk.set_voxel(bx + 15, g + 3, bz + 5, ids.brick);
             }
 
             // ── Homeless encampment z=-1 cx=+2 ────────────────────────────
@@ -223,11 +253,56 @@ impl ChunkStage for SFDistrictStage {
                 chunk.set_voxel(tx + 5, g + 1, tz + 1, ids.cobble);
                 chunk.set_voxel(tx + 5, g + 1, tz + 2, ids.stone);
                 chunk.set_voxel(tx - 1, g + 1, tz + 3, ids.cobble);
+
+                // Street lamps at 4 corners of intersection
+                for (lx, lz) in [(bx+5, bz+5), (bx+10, bz+5), (bx+5, bz+10), (bx+10, bz+10)] {
+                    col(&mut chunk, lx, lz, g, g + 4, ids.dark_stone);
+                    chunk.set_voxel(lx, g + 5, lz, ids.lamp);
+                }
+
+                // Corner kiosk (NW quadrant, away from tent)
+                fill(&mut chunk, bx + 2, g, bz + 2, bx + 3, g + 2, bz + 3, ids.dark_stone);
+                chunk.set_voxel(bx + 2, g + 3, bz + 2, ids.glass);
+                chunk.set_voxel(bx + 3, g + 3, bz + 2, ids.glass);
+                fill(&mut chunk, bx + 2, g + 4, bz + 2, bx + 3, g + 4, bz + 3, ids.cobble);
+
+                // Manhole covers flush with road
+                chunk.set_voxel(bx + 7, g - 1, bz + 7, ids.stone);
+                chunk.set_voxel(bx + 8, g - 1, bz + 8, ids.stone);
+
+                // Cardboard debris near tent
+                chunk.set_voxel(bx + 10, g, bz + 10, ids.cardboard);
+                chunk.set_voxel(bx + 13, g, bz + 12, ids.cardboard);
             }
 
             // ── Road N-S connectors ───────────────────────────────────────
-            (-1, 0) | (1, 0) => {
+            (-1, 0) => {
                 fill(&mut chunk, bx + 6, g - 1, bz, bx + 9, g - 1, bz + 15, ids.stone);
+                // Parked car (east side)
+                fill(&mut chunk, bx + 10, g, bz + 4, bx + 13, g + 1, bz + 6, ids.dark_stone);
+                chunk.set_voxel(bx + 11, g + 2, bz + 4, ids.glass);
+                chunk.set_voxel(bx + 12, g + 2, bz + 4, ids.glass);
+                // Street lamps
+                col(&mut chunk, bx + 10, bz + 2,  g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 10, g + 5, bz + 2, ids.lamp);
+                col(&mut chunk, bx + 10, bz + 12, g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 10, g + 5, bz + 12, ids.lamp);
+                // Dumpster (west side)
+                fill(&mut chunk, bx + 1, g, bz + 7, bx + 2, g + 2, bz + 8, ids.dark_stone);
+            }
+            (1, 0) => {
+                fill(&mut chunk, bx + 6, g - 1, bz, bx + 9, g - 1, bz + 15, ids.stone);
+                // VC Tower forecourt plaza
+                fill(&mut chunk, bx, g - 1, bz + 3, bx + 4, g - 1, bz + 12, ids.cobble);
+                // Bollards
+                chunk.set_voxel(bx + 2, g, bz + 4, ids.cobble);
+                chunk.set_voxel(bx + 2, g, bz + 7, ids.cobble);
+                chunk.set_voxel(bx + 2, g, bz + 10, ids.cobble);
+                // Street lamps
+                col(&mut chunk, bx + 3, bz + 2,  g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 3, g + 5, bz + 2, ids.lamp);
+                col(&mut chunk, bx + 3, bz + 13, g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 3, g + 5, bz + 13, ids.lamp);
             }
             (0, 1) | (0, -1) => {
                 fill(&mut chunk, bx, g - 1, bz + 6, bx + 15, g - 1, bz + 9, ids.stone);
@@ -403,21 +478,110 @@ impl ChunkStage for SFDistrictStage {
                 }
             }
 
-            // ── Parks (corners z=+2) ───────────────────────────────────────
-            (-2, 2) | (2, 2) => {
-                // Cobble path through the middle
+            // ── West park (-2,+2) — fountain ─────────────────────────────
+            (-2, 2) => {
                 fill(&mut chunk, bx, g - 1, bz + 7, bx + 15, g - 1, bz + 8, ids.cobble);
                 fill(&mut chunk, bx + 7, g - 1, bz, bx + 8, g - 1, bz + 15, ids.cobble);
-                // Four wood "trees" near corners
                 for (tx, tz) in [(bx + 3, bz + 3), (bx + 11, bz + 3),
                                   (bx + 3, bz + 11), (bx + 11, bz + 11)] {
                     col(&mut chunk, tx, tz, g, g + 5, ids.wood);
-                    // Leaf-like top using cobble (simplest)
                     fill(&mut chunk, tx - 1, g + 5, tz - 1, tx + 1, g + 6, tz + 1, ids.cobble);
                 }
-                // Park benches
+                // Central fountain basin
+                fill(&mut chunk, bx + 6, g - 1, bz + 6, bx + 9, g - 1, bz + 9, ids.cobble);
+                for vx in bx+6..=bx+9 {
+                    chunk.set_voxel(vx, g, bz + 6, ids.cobble);
+                    chunk.set_voxel(vx, g, bz + 9, ids.cobble);
+                }
+                for vz in bz+7..=bz+8 {
+                    chunk.set_voxel(bx + 6, g, vz, ids.cobble);
+                    chunk.set_voxel(bx + 9, g, vz, ids.cobble);
+                }
+                chunk.set_voxel(bx + 7, g, bz + 7, ids.water);
+                chunk.set_voxel(bx + 7, g, bz + 8, ids.water);
+                chunk.set_voxel(bx + 8, g, bz + 7, ids.water);
+                chunk.set_voxel(bx + 8, g, bz + 8, ids.water);
                 fill(&mut chunk, bx + 5, g, bz + 5, bx + 6, g, bz + 5, ids.wood);
-                fill(&mut chunk, bx + 5, g, bz + 10, bx + 6, g, bz + 10, ids.wood);
+                fill(&mut chunk, bx + 9, g, bz + 5, bx + 10, g, bz + 5, ids.wood);
+            }
+
+            // ── East park (+2,+2) — obelisk ───────────────────────────────
+            (2, 2) => {
+                fill(&mut chunk, bx, g - 1, bz + 7, bx + 15, g - 1, bz + 8, ids.cobble);
+                fill(&mut chunk, bx + 7, g - 1, bz, bx + 8, g - 1, bz + 15, ids.cobble);
+                for (tx, tz) in [(bx + 3, bz + 3), (bx + 11, bz + 3),
+                                  (bx + 3, bz + 11), (bx + 11, bz + 11)] {
+                    col(&mut chunk, tx, tz, g, g + 5, ids.wood);
+                    fill(&mut chunk, tx - 1, g + 5, tz - 1, tx + 1, g + 6, tz + 1, ids.cobble);
+                }
+                fill(&mut chunk, bx + 6, g, bz + 6, bx + 8, g + 1, bz + 8, ids.stone);
+                fill(&mut chunk, bx + 6, g + 2, bz + 6, bx + 7, g + 6, bz + 7, ids.dark_stone);
+                chunk.set_voxel(bx + 6, g + 7, bz + 6, ids.dark_stone);
+                chunk.set_voxel(bx + 6, g + 8, bz + 6, ids.stone);
+                fill(&mut chunk, bx + 5, g, bz + 5, bx + 6, g, bz + 5, ids.wood);
+                fill(&mut chunk, bx + 9, g, bz + 5, bx + 10, g, bz + 5, ids.wood);
+            }
+
+            // ── Parking structure / warehouse (-1,+2) ─────────────────────
+            (-1, 2) => {
+                let ox = bx + 4;
+                let oz = bz + 2;
+                walls(&mut chunk, ox, g, oz, ox + 7, g + 8, oz + 11, ids.white_concrete);
+                fill(&mut chunk, ox + 1, g + 1, oz + 1, ox + 6, g + 7, oz + 10, 0);
+                fill(&mut chunk, ox + 1, g + 4, oz + 1, ox + 6, g + 4, oz + 10, ids.cobble);
+                fill(&mut chunk, ox, g + 9, oz, ox + 7, g + 9, oz + 11, ids.cobble);
+                for vx in (ox+1..ox+7).step_by(2) {
+                    for vy in [g + 2, g + 5] {
+                        chunk.set_voxel(vx, vy, oz, ids.glass);
+                        chunk.set_voxel(vx, vy + 1, oz, ids.glass);
+                    }
+                }
+                for vx in ox+1..=ox+4 { for vy in g..=g+2 { chunk.set_voxel(vx, vy, oz, 0); } }
+                fill(&mut chunk, ox + 5, g + 10, oz + 8, ox + 6, g + 11, oz + 9, ids.dark_stone);
+                fill(&mut chunk, ox + 1, g + 10, oz + 2, ox + 2, g + 12, oz + 3, ids.wood);
+            }
+
+            // ── Community plaza (0,+2) ────────────────────────────────────
+            (0, 2) => {
+                fill(&mut chunk, bx + 3, g - 1, bz + 3, bx + 12, g - 1, bz + 12, ids.cobble);
+                fill(&mut chunk, bx + 2, g - 1, bz + 2, bx + 13, g - 1, bz + 2,  ids.stone);
+                fill(&mut chunk, bx + 2, g - 1, bz + 13, bx + 13, g - 1, bz + 13, ids.stone);
+                fill(&mut chunk, bx + 2, g - 1, bz + 3, bx + 2,  g - 1, bz + 12, ids.stone);
+                fill(&mut chunk, bx + 13, g - 1, bz + 3, bx + 13, g - 1, bz + 12, ids.stone);
+                col(&mut chunk, bx + 7, bz + 12, g, g + 5, ids.dark_stone);
+                chunk.set_voxel(bx + 7, g + 5, bz + 13, ids.stone);
+                chunk.set_voxel(bx + 7, g + 5, bz + 14, ids.lamp);
+                fill(&mut chunk, bx + 3,  g, bz + 2, bx + 5,  g, bz + 2, ids.wood);
+                fill(&mut chunk, bx + 10, g, bz + 2, bx + 12, g, bz + 2, ids.wood);
+                col(&mut chunk, bx + 2,  bz + 2, g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 2,  g + 5, bz + 2, ids.lamp);
+                col(&mut chunk, bx + 13, bz + 2, g, g + 4, ids.dark_stone);
+                chunk.set_voxel(bx + 13, g + 5, bz + 2, ids.lamp);
+            }
+
+            // ── Mid-rise apartment (+1,+2) ────────────────────────────────
+            (1, 2) => {
+                let ox = bx + 3;
+                let oz = bz + 3;
+                let top = g + 16;
+                walls(&mut chunk, ox, g, oz, ox + 9, top, oz + 9, ids.white_concrete);
+                fill(&mut chunk, ox + 1, g + 1, oz + 1, ox + 8, top - 1, oz + 8, 0);
+                fill(&mut chunk, ox, top + 1, oz, ox + 9, top + 1, oz + 9, ids.dark_stone);
+                for fy in [g+4, g+8, g+12] {
+                    fill(&mut chunk, ox + 1, fy, oz + 1, ox + 8, fy, oz + 8, ids.cobble);
+                }
+                for vx in (ox..=ox+9).step_by(3) {
+                    let mut vy = g + 2;
+                    while vy < top {
+                        chunk.set_voxel(vx, vy, oz, ids.glass);
+                        if vy + 1 < top { chunk.set_voxel(vx, vy + 1, oz, ids.glass); }
+                        vy += 4;
+                    }
+                }
+                for vx in ox+4..=ox+5 { for vy in g..=g+2 { chunk.set_voxel(vx, vy, oz, 0); } }
+                fill(&mut chunk, ox + 7, top + 2, oz + 1, ox + 8, top + 3, oz + 2, ids.cobble);
+                fill(&mut chunk, ox + 2, top + 2, oz + 6, ox + 3, top + 4, oz + 7, ids.wood);
+                col(&mut chunk, ox + 8, oz + 8, top + 2, top + 6, ids.dark_stone);
             }
 
             // ── Diane's Bodega — chunk (1,-1) ────────────────────────────
@@ -1289,12 +1453,14 @@ async fn main() -> std::io::Result<()> {
     let stone            = Block::new("Stone").id(2).build();
     let grass            = Block::new("Grass Block").id(3).build();
     let brick            = Block::new("Brick").id(4).build();
-    let glass            = Block::new("Glass").id(5).is_transparent(true).build();
+    // Glass: transparent + see-through so light passes correctly
+    let glass            = Block::new("Glass").id(5).is_transparent(true).is_see_through(true).build();
     let wood             = Block::new("Wood").id(6).build();
     let dark_stone       = Block::new("Dark Stone").id(7).build();
     let cobble           = Block::new("Cobblestone").id(8).build();
     // SF district blocks
-    let water            = Block::new("Water").id(9).is_transparent(true).build();
+    // Water: fluid + passable + transparent so players can swim through it
+    let water            = Block::new("Water").id(9).is_fluid(true).is_passable(true).is_transparent(true).is_see_through(true).build();
     let _sand            = Block::new("Sand").id(10).build();
     let plank            = Block::new("Plank").id(11).build();
     let orange_concrete  = Block::new("Orange Concrete").id(12).build();
@@ -1302,12 +1468,15 @@ async fn main() -> std::io::Result<()> {
     let steel            = Block::new("Steel").id(14).build();
     let tent_canvas      = Block::new("Tent Canvas").id(15).build();
     let cardboard        = Block::new("Cardboard").id(16).build();
+    // Lamp: glass cap that emits warm torch light (used on street lamp tops)
+    let lamp             = Block::new("Lamp").id(17).is_transparent(true).is_see_through(true)
+                               .torch_light_level(12).build();
 
     let config = WorldConfig::new()
-        .min_chunk([-128, -128])
-        .max_chunk([128, 128])
+        .min_chunk([-64, -64])
+        .max_chunk([64, 64])
         .preload(true)
-        .preload_radius(18)
+        .preload_radius(6)
         .time_per_day(24000)
         .default_time(12000.0)
         .build();
@@ -1327,7 +1496,7 @@ async fn main() -> std::io::Result<()> {
     let mut registry = Registry::new();
     registry.register_blocks(&[
         dirt, stone, grass, brick, glass, wood, dark_stone, cobble,
-        water, _sand, plank, orange_concrete, white_concrete, steel, tent_canvas, cardboard,
+        water, _sand, plank, orange_concrete, white_concrete, steel, tent_canvas, cardboard, lamp,
     ]);
 
     // AWS credentials — NPC brain only activates when all three are present
@@ -1425,6 +1594,87 @@ async fn main() -> std::io::Result<()> {
     })
     .bind("0.0.0.0:4001")?
     .run();
+
+    // ── Player health system ───────────────────────────────────────────────────
+    // Each client starts with 100 HP. "player-hit" events decrement it;
+    // "player-respawn" events reset it.
+
+    let max_hp: i32 = 100;
+    let player_hp: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    {
+        let hp_hit = Arc::clone(&player_hp);
+        world.set_event_handle("player-hit", move |world, _sender_id, payload| {
+            let v: serde_json::Value = match serde_json::from_str(payload) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            let target_id = match v["target_id"].as_str() {
+                Some(s) => s.to_owned(),
+                None => return,
+            };
+            let damage = v["damage"].as_i64().unwrap_or(10) as i32;
+
+            let new_hp = {
+                let mut map = hp_hit.lock().unwrap();
+                let hp = map.entry(target_id.clone()).or_insert(max_hp);
+                *hp = (*hp - damage).max(0);
+                *hp
+            };
+
+            let killed = new_hp == 0;
+
+            world.events_mut().dispatch(
+                Event::new("health-update")
+                    .payload(serde_json::json!({
+                        "player_id": target_id,
+                        "hp": new_hp,
+                        "max_hp": max_hp,
+                        "killed": killed,
+                    }))
+                    .filter(ClientFilter::All)
+                    .build(),
+            );
+
+            if killed {
+                // Reset HP after a short delay by dispatching a respawn event
+                let mut map = hp_hit.lock().unwrap();
+                map.insert(target_id.clone(), max_hp);
+
+                world.events_mut().dispatch(
+                    Event::new("player-respawned")
+                        .payload(serde_json::json!({
+                            "player_id": target_id,
+                            "hp": max_hp,
+                            "max_hp": max_hp,
+                        }))
+                        .filter(ClientFilter::All)
+                        .build(),
+                );
+            }
+        });
+    }
+
+    {
+        let hp_respawn = Arc::clone(&player_hp);
+        world.set_event_handle("player-respawn", move |world, client_id, _payload| {
+            {
+                let mut map = hp_respawn.lock().unwrap();
+                map.insert(client_id.to_owned(), max_hp);
+            }
+            world.events_mut().dispatch(
+                Event::new("health-update")
+                    .payload(serde_json::json!({
+                        "player_id": client_id,
+                        "hp": max_hp,
+                        "max_hp": max_hp,
+                        "killed": false,
+                    }))
+                    .filter(ClientFilter::All)
+                    .build(),
+            );
+        });
+    }
 
     let mut vox_server = Server::new().port(4000).registry(&registry).build();
     vox_server.add_world(world).expect("Failed to add world");

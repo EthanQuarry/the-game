@@ -9,10 +9,22 @@
   <body>
     <div id="app">
       <canvas id="canvas"></canvas>
-      <div id="overlay">
+      <div id="welcome-screen">
+        <div id="welcome-box">
+          <h1>the-game</h1>
+          <p class="welcome-blurb">A voxel city full of broken people. Talk to the locals, pick up weapons, and figure out what's going on. Everyone has a story — most of them are lies.</p>
+          <div class="welcome-controls-hint">WASD move &nbsp;·&nbsp; Space jump &nbsp;·&nbsp; E interact &nbsp;·&nbsp; Q drop &nbsp;·&nbsp; F fly &nbsp;·&nbsp; V 3rd person</div>
+          <div class="welcome-name-row">
+            <input id="welcome-name" type="text" maxlength="16" placeholder="Enter your name..." autocomplete="off" spellcheck="false" />
+            <button id="welcome-enter">Enter</button>
+          </div>
+          <div id="welcome-error"></div>
+        </div>
+      </div>
+      <div id="overlay" class="hidden">
         <div id="overlay-content">
           <h1>the-game</h1>
-          <p>Click to play</p>
+          <p>Click to resume</p>
           <span>WASD · Space to jump · F to fly · G noclip · E talk to NPC · Click &amp; drag to look</span>
         </div>
       </div>
@@ -36,6 +48,7 @@
       <div id="crosshair">+</div>
       <div id="weapon-hud">
         <span id="weapon-name">Pistol</span>
+        <span id="weapon-ammo"></span>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>
