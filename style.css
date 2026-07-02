@@ -30,6 +30,7 @@ body {
   background: rgba(0, 0, 0, 0.6);
   cursor: pointer;
   z-index: 10;
+  pointer-events: none;
 }
 
 #overlay.hidden {

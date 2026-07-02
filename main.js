@@ -35,39 +35,33 @@ const network = new VOXELIZE.Network();
 network.register(world);
 
 const inputs = new VOXELIZE.Inputs();
+inputs.setNamespace("menu");
 
 const rigidControls = new VOXELIZE.RigidControls(
   camera,
   renderer.domElement,
   world,
   {
-    initialPosition: [0, 40, 0],
+    initialPosition: [0, 80, 0],
   }
 );
-rigidControls.connect(inputs);
+rigidControls.connect(inputs, "in-game");
 
-inputs.bind("g", rigidControls.toggleGhostMode);
-inputs.bind("f", rigidControls.toggleFly);
+inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
+inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
+
+rigidControls.on("lock", () => inputs.setNamespace("in-game"));
+rigidControls.on("unlock", () => inputs.setNamespace("menu"));
 
 const overlay = document.getElementById("overlay");
-overlay.addEventListener("click", () => {
-  overlay.classList.add("hidden");
-  canvas.requestPointerLock();
-});
+// Overlay is pointer-events:none so clicks pass through to the canvas.
+// RigidControls' own canvas click handler requests pointer lock.
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement === canvas) {
-    rigidControls.isLocked = true;
     overlay.classList.add("hidden");
-    console.log("pointer locked — WASD active");
   } else {
-    rigidControls.isLocked = false;
     overlay.classList.remove("hidden");
-    console.log("pointer unlocked");
   }
-});
-document.addEventListener("pointerlockerror", () => {
-  console.error("pointer lock failed");
-  overlay.classList.remove("hidden");
 });
 
 function animate() {
@@ -92,6 +86,10 @@ async function start() {
   await network.join("tutorial");
 
   await world.initialize();
+
+  world.addChunkInitListener([0, 0], () => {
+    rigidControls.teleportToTop(0, 0);
+  });
 
   world.sky.setShadingPhases([
     {
