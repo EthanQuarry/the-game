@@ -6,7 +6,7 @@ import {
   initHotbar, initPickupTooltip,
   updateInventory, tryPickup, tryDrop,
   addItem, refreshHotbar, getSlot, setFocusedSlot, getFocusedSlot,
-  spawnGroundItem,
+  spawnGroundItem, groundItems, ITEM_DEFS,
 } from "./inventory.js";
 
 // ── Renderer & Camera ─────────────────────────────────────────────────────────
@@ -388,11 +388,14 @@ function createNpc(id, name, spawnPos, skinName) {
   npcs.set(id, {
     character, id, name,
     pos: new THREE.Vector3(...spawnPos),
-    // movement mode: 'idle' | 'wandering' | 'following' | 'retreating'
     mode: 'idle',
     target: null,
     wanderTimer: 0,
     speechBubble: bubble, bubbleTimeout: null, lastSpeech: null,
+    // item awareness
+    heldItem: null,
+    heldItemMesh: null,
+    lastContextSent: 0,
   });
   return npcs.get(id);
 }
@@ -552,6 +555,138 @@ function updateBubblePosition(npc) {
 }
 
 // SSE for LLM NPC events
+// ── NPC item interaction functions ────────────────────────────────────────────
+
+function npcDetachItemMesh(npc) {
+  if (npc.heldItemMesh) {
+    npc.heldItemMesh.parent?.remove(npc.heldItemMesh);
+    npc.heldItemMesh = null;
+  }
+}
+
+function npcAttachItemMesh(npc, itemId) {
+  npcDetachItemMesh(npc);
+  const def = ITEM_DEFS[itemId];
+  if (!def?.makeMesh) return;
+  const mesh = def.makeMesh();
+  mesh.scale.setScalar(0.45);
+  mesh.position.set(0.05, -0.15, -0.1);
+  npc.character.rightArmGroup?.add(mesh);
+  npc.heldItemMesh = mesh;
+}
+
+function npcPickUpItem(npc) {
+  // Find nearest settled ground item within 5 blocks
+  let nearest = null, nearestDist = 5;
+  for (const item of groundItems) {
+    if (!item.settled) continue;
+    const dx = item.mesh.position.x - npc.pos.x;
+    const dz = item.mesh.position.z - npc.pos.z;
+    const dist = Math.sqrt(dx*dx + dz*dz);
+    if (dist < nearestDist) { nearestDist = dist; nearest = item; }
+  }
+  if (!nearest) return;
+
+  world.remove(nearest.mesh);
+  groundItems.splice(groundItems.indexOf(nearest), 1);
+
+  const itemData = nearest.mesh.userData?.itemData ?? {};
+  npc.heldItem = { id: nearest.id, data: { ...itemData } };
+  npcAttachItemMesh(npc, nearest.id);
+  showSpeechBubble(npc, `*picks up ${nearest.id.replace('_',' ')}*`);
+}
+
+function npcDropItem(npc) {
+  if (!npc.heldItem) return;
+  const dropPos = new THREE.Vector3(
+    npc.pos.x + (Math.random() - 0.5) * 2,
+    npc.pos.y - NPC_EYE_Y + 0.5,
+    npc.pos.z + (Math.random() - 0.5) * 2
+  );
+  const root = spawnGroundItem(npc.heldItem.id, { ...npc.heldItem.data }, dropPos);
+  if (root) world.add(root);
+  npc.heldItem = null;
+  npcDetachItemMesh(npc);
+}
+
+function npcHolster(npc) {
+  npcDetachItemMesh(npc);
+  // Item stays in heldItem.data — just hidden visually
+}
+
+function npcShootAt(npc, targetPlayerId) {
+  if (!npc.heldItem) return;
+  const id = npc.heldItem.id;
+  if (id !== "pistol" && id !== "shotgun") return;
+  if ((npc.heldItem.data?.ammo ?? 0) <= 0) {
+    showSpeechBubble(npc, "*click* out of ammo");
+    return;
+  }
+  npc.heldItem.data.ammo--;
+
+  // Origin = NPC eye
+  const origin = npc.pos.clone();
+  origin.y += NPC_EYE_Y * 0.85;
+
+  // Find target position
+  let targetPos = null;
+  if (targetPlayerId === playerId) {
+    targetPos = controls.object.position.clone();
+  } else {
+    for (const [pid, peer] of (peers?.peerMap ?? new Map())) {
+      if (pid === targetPlayerId) { targetPos = peer.position?.clone(); break; }
+    }
+  }
+  if (!targetPos) {
+    // Default: shoot toward nearest player
+    targetPos = controls.object.position.clone();
+  }
+
+  const dir = targetPos.clone().sub(origin).normalize();
+  const endPt = origin.clone().addScaledVector(dir, 40);
+
+  spawnTracer(origin.clone(), endPt, 0xff3300);
+  spawnHitSparks(targetPos.toArray(), [0, 1, 0]);
+
+  // Apply damage if close enough
+  const dist = origin.distanceTo(targetPos);
+  if (dist < 35 && targetPlayerId === playerId) {
+    const damage = id === "shotgun" ? 12 : 22;
+    localHp = Math.max(0, localHp - damage);
+    updateHpBar?.();
+    flashDamage?.();
+    if (localHp <= 0) triggerDeath?.();
+  }
+}
+
+function sendNpcContext(npc) {
+  if (!NPC_LLM_ENABLED || !world.isInitialized) return;
+  const now = performance.now();
+  if (now - npc.lastContextSent < 2000) return;
+  npc.lastContextSent = now;
+
+  const nearby = groundItems
+    .filter(item => item.settled)
+    .map(item => {
+      const dx = item.mesh.position.x - npc.pos.x;
+      const dz = item.mesh.position.z - npc.pos.z;
+      return { id: item.id, dist: Math.round(Math.sqrt(dx*dx + dz*dz) * 10) / 10 };
+    })
+    .filter(i => i.dist < 15)
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 5);
+
+  fetch(`${NPC_API}/npc-context`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      npc_id: npc.id,
+      nearby_items: nearby,
+      held_item: npc.heldItem?.id ?? null,
+    }),
+  }).catch(() => {});
+}
+
 function connectNpcEvents() {
   const es = new EventSource(`${NPC_API}/npc-events`);
   es.onmessage = (e) => {
@@ -560,7 +695,7 @@ function connectNpcEvents() {
     if (!npc) return;
     npc.actionType = data.action_type;
 
-    // LLM sets movement mode — no teleporting, movement runs each frame
+    // Movement modes
     const home = NPC_HOME[npc.id] || TENT_POS;
     if (data.action_type === "move_toward") {
       npc.mode = 'following';
@@ -576,7 +711,18 @@ function connectNpcEvents() {
       npc.mode = 'idle';
     }
 
-    // Handle speech (can accompany any action)
+    // Item actions
+    if (data.action_type === "pick_up_item") {
+      npcPickUpItem(npc);
+    } else if (data.action_type === "shoot_player") {
+      npcShootAt(npc, data.speech_target || playerId);
+    } else if (data.action_type === "drop_item") {
+      npcDropItem(npc);
+    } else if (data.action_type === "holster") {
+      npcHolster(npc);
+    }
+
+    // Handle speech
     if (data.speech) {
       showSpeechBubble(npc, data.speech); npc.lastSpeech = data.speech;
       if (activeNpcDialog === data.npc_id) {
@@ -1676,6 +1822,10 @@ function animate() {
 
     playerUpdateTimer += 16;
     if (playerUpdateTimer >= 500) { playerUpdateTimer = 0; reportPlayerPos(); }
+
+    // Send ground item context to server for item-aware NPCs
+    const thomas = npcs.get("thomas");
+    if (thomas) sendNpcContext(thomas);
 
     // Recoil decay
     // Recoil: spring camera.rotation.x toward recoilTarget, then decay target back to 0

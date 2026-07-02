@@ -125,7 +125,7 @@ export function removeSlot(i) {
 // ── Ground items ──────────────────────────────────────────────────────────────
 // Each ground item: { mesh, id, data, bobOffset, pickupAnim, tossVel, settled }
 
-const groundItems = [];
+export const groundItems = [];
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _gravity = -0.016;
@@ -403,4 +403,4 @@ export function setFocusedSlot(i) {
   hotbar.setFocused(0, focusedSlot);
 }
 
-export { groundItems };
+// groundItems already exported above
