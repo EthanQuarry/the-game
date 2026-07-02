@@ -1,0 +1,21 @@
+{
+  "name": "voxelize-tutorial",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "cargo run --release",
+    "server:dev": "cargo watch -w src -x \"run --release\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@voxelize/core": "^1.0.0",
+    "postprocessing": "^6.35.0",
+    "three": "^0.183.0"
+  }
+}
