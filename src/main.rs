@@ -209,6 +209,8 @@ async fn main() -> std::io::Result<()> {
     let config = WorldConfig::new()
         .min_chunk([-128, -128])
         .max_chunk([128, 128])
+        .preload(true)
+        .preload_radius(20)
         .time_per_day(24000)
         .default_time(12000.0)
         .build();

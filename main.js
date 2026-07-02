@@ -47,6 +47,7 @@ const rigidControls = new VOXELIZE.RigidControls(
   }
 );
 rigidControls.connect(inputs, "in-game");
+network.register(rigidControls);
 
 const perspectives = new VOXELIZE.Perspective(rigidControls, world);
 perspectives.connect(inputs, "in-game");
@@ -138,7 +139,7 @@ function animate() {
 
   if (world.isInitialized) {
     world.update(
-      camera.getWorldPosition(new THREE.Vector3()),
+      rigidControls.object.position,
       camera.getWorldDirection(new THREE.Vector3())
     );
     rigidControls.update();
