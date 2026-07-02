@@ -210,7 +210,7 @@ async fn main() -> std::io::Result<()> {
         .min_chunk([-16, -16])
         .max_chunk([16, 16])
         .time_per_day(24000)
-        .default_time(6000.0)
+        .default_time(1000.0)
         .build();
 
     let mut world = World::new("tutorial", &config);

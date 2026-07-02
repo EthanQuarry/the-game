@@ -165,56 +165,26 @@ async function start() {
   await network.join("tutorial");
 
   await world.initialize();
+  world.renderRadius = 16;
 
-  // Spawn on the road in front of the east office building
+  // Float in place until chunk [0,0] is ready, then land on the road
+  rigidControls.toggleGhostMode();
   world.addChunkInitListener([0, 0], () => {
     rigidControls.teleportToTop(8, 8);
+    if (rigidControls.ghostMode) rigidControls.toggleGhostMode();
   });
 
   world.sky.setShadingPhases([
     {
-      name: "sunrise",
-      color: {
-        top: new THREE.Color("#7694CF"),
-        middle: new THREE.Color("#E8804A"),
-        bottom: new THREE.Color("#F5C07A"),
-      },
-      skyOffset: 0.05,
-      voidOffset: 0.6,
-      start: 0.2,
-    },
-    {
       name: "daylight",
       color: {
-        top: new THREE.Color("#2E7FD9"),
-        middle: new THREE.Color("#71B4F5"),
-        bottom: new THREE.Color("#C8E8FF"),
+        top: new THREE.Color("#1a6fd4"),
+        middle: new THREE.Color("#5aaaf0"),
+        bottom: new THREE.Color("#8dc8ff"),
       },
       skyOffset: 0,
-      voidOffset: 0.6,
-      start: 0.25,
-    },
-    {
-      name: "sunset",
-      color: {
-        top: new THREE.Color("#A57A59"),
-        middle: new THREE.Color("#FC5935"),
-        bottom: new THREE.Color("#FFB347"),
-      },
-      skyOffset: 0.05,
-      voidOffset: 0.6,
-      start: 0.7,
-    },
-    {
-      name: "night",
-      color: {
-        top: new THREE.Color("#0a0a1a"),
-        middle: new THREE.Color("#0d0d22"),
-        bottom: new THREE.Color("#111122"),
-      },
-      skyOffset: 0.1,
-      voidOffset: 0.6,
-      start: 0.75,
+      voidOffset: 0.5,
+      start: 0.0,
     },
   ]);
 
