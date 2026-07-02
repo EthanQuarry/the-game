@@ -54,13 +54,26 @@ rigidControls.on("lock", () => inputs.setNamespace("in-game"));
 rigidControls.on("unlock", () => inputs.setNamespace("menu"));
 
 const overlay = document.getElementById("overlay");
-// Overlay is pointer-events:none so clicks pass through to the canvas.
-// RigidControls' own canvas click handler requests pointer lock.
+
+// Set namespace and isLocked immediately on click so WASD works even if
+// the browser (common on Linux) silently rejects the pointer lock request.
+canvas.addEventListener("click", () => {
+  overlay.classList.add("hidden");
+  rigidControls.isLocked = true;
+  inputs.setNamespace("in-game");
+});
+
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement === canvas) {
     overlay.classList.add("hidden");
   } else {
-    overlay.classList.remove("hidden");
+    // Only show overlay and disable movement if pointer lock was actually
+    // granted before and is now released (Escape key).
+    if (rigidControls.isLocked) {
+      rigidControls.isLocked = false;
+      inputs.setNamespace("menu");
+      overlay.classList.remove("hidden");
+    }
   }
 });
 

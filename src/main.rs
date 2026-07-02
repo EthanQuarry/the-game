@@ -1,5 +1,5 @@
 use voxelize::{
-    Block, Chunk, ChunkStage, FlatlandStage, Registry, Resources, Server, Space, Vec3,
+    Block, Chunk, ChunkStage, FlatlandStage, Registry, Resources, Server, Space, Vec2,
     VoxelAccess, Voxelize, World, WorldConfig,
 };
 
@@ -58,7 +58,7 @@ impl ChunkStage for BuildingStage {
 
     fn process(&self, mut chunk: Chunk, resources: Resources, _: Option<Space>) -> Chunk {
         // Only build in the origin chunk
-        if chunk.coords != (0, 0) {
+        if chunk.coords != Vec2(0, 0) {
             return chunk;
         }
 
@@ -158,7 +158,6 @@ impl ChunkStage for BuildingStage {
         Self::set_rect(&mut chunk, kx0, kz0, kx1, kz1, keep_top + 1, dark);
 
         // Spire on top of keep (4 blocks of dark stone tapering)
-        let spire_levels = [((-1, -1), (0, 0)), ((-1, -1), (0, 0))];
         Self::set_col(&mut chunk, -1, -1, keep_top + 2, keep_top + 5, dark);
         Self::set_col(&mut chunk, -1, 0, keep_top + 2, keep_top + 5, dark);
         Self::set_col(&mut chunk, 0, -1, keep_top + 2, keep_top + 5, dark);
@@ -176,7 +175,6 @@ impl ChunkStage for BuildingStage {
             chunk.set_voxel(0, vy, wz0, 0);
         }
 
-        let _ = spire_levels;
         chunk
     }
 }
