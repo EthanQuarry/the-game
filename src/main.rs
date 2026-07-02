@@ -105,7 +105,9 @@ impl ChunkStage for SFDistrictStage {
             // ── Bay water (entire z=-2 row) ────────────────────────────────
             (_, -2) => {
                 // Flood entire column with water
-                fill(&mut chunk, bx, 0, bz, bx + 15, g, bz + 15, ids.water);
+                // Clear grass/dirt above water, then fill water at y=0..10
+                fill(&mut chunk, bx, g - 2, bz, bx + 15, g + 1, bz + 15, 0);
+                fill(&mut chunk, bx, 0, bz, bx + 15, g - 3, bz + 15, ids.water);
                 // Road deck where bridge passes (x world coords 6..9 relative to chunk -1 and +1)
                 let road_x0 = bx + 6;
                 let road_x1 = bx + 9;
@@ -721,6 +723,10 @@ struct NpcState {
     // queued messages: (player_id, player_name, message)
     message_queue: Vec<(String, String, String)>,
     tick_in_flight: bool,
+    // item awareness
+    nearby_items: Vec<(String, f32)>,   // (item_id, distance)
+    held_item: Option<String>,           // item id currently held
+    last_autonomous_tick: std::time::Instant,
 }
 
 struct NpcDef {
@@ -1151,6 +1157,20 @@ fn build_user_prompt(
         prompt.push('\n');
     }
 
+    // Ground items nearby
+    if state.nearby_items.is_empty() {
+        prompt.push_str("Ground items nearby: none\n\n");
+    } else {
+        prompt.push_str("Ground items nearby:\n");
+        for (item_id, dist) in &state.nearby_items {
+            prompt.push_str(&format!("  - {} at {:.1} blocks\n", item_id, dist));
+        }
+        prompt.push('\n');
+    }
+    if let Some(ref item) = state.held_item {
+        prompt.push_str(&format!("You are holding: {}\n\n", item));
+    }
+
     prompt.push_str("Situation notes:\n");
     let in_range: Vec<_> = nearby_players.iter().filter(|p| {
         let dx = p.pos[0] - state.pos.0;
@@ -1181,15 +1201,27 @@ async fn run_npc_tick(
     broadcast_tx: tokio::sync::broadcast::Sender<String>,
 ) {
     loop {
-        // Only call Bedrock when the player has sent a message — no unsolicited ticks
         sleep(Duration::from_millis(300)).await;
 
-        let (has_messages, in_flight) = {
+        let (has_messages, in_flight, nearby_count, time_since_last) = {
             let npc = npc_arc.lock().unwrap();
-            (!npc.message_queue.is_empty(), npc.tick_in_flight)
+            let all = players.lock().unwrap();
+            let count = all.iter().filter(|p| {
+                let dx = p.pos[0] - npc.pos.0;
+                let dz = p.pos[2] - npc.pos.2;
+                (dx * dx + dz * dz).sqrt() < def.nearby_radius
+            }).count();
+            let elapsed = npc.last_autonomous_tick.elapsed().as_millis() as u64;
+            (!npc.message_queue.is_empty(), npc.tick_in_flight, count, elapsed)
         };
 
-        if in_flight || !has_messages {
+        if in_flight { continue; }
+
+        // Tick when: player sent a message, OR autonomous timer fires
+        let autonomous_due = (nearby_count > 0 && time_since_last >= def.tick_rate_near_ms)
+            || (nearby_count == 0 && time_since_last >= def.tick_rate_far_ms);
+
+        if !has_messages && !autonomous_due {
             continue;
         }
 
@@ -1283,6 +1315,7 @@ async fn run_npc_tick(
             npc.emotion = new_emotion.clone();
             npc.current_action = new_action.clone();
             npc.tick_in_flight = false;
+            npc.last_autonomous_tick = std::time::Instant::now();
 
             // Apply memory updates, cap at 10 per player
             for (player_id, update) in memory_updates {
@@ -1417,6 +1450,38 @@ struct PlayerUpdateBody {
     pos: [f32; 3],
 }
 
+// ── /npc-context — client reports nearby ground items so LLM can see them ────
+
+#[derive(serde::Deserialize)]
+struct NearbyItemEntry {
+    id: String,
+    dist: f32,
+}
+
+#[derive(serde::Deserialize)]
+struct NpcContextBody {
+    npc_id: String,
+    nearby_items: Vec<NearbyItemEntry>,
+    held_item: Option<String>,
+}
+
+async fn handle_npc_context(
+    npc_map: web::Data<NpcMap>,
+    body: web::Json<NpcContextBody>,
+) -> HttpResponse {
+    let map = npc_map.lock().unwrap();
+    if let Some(state_arc) = map.get(&body.npc_id) {
+        let mut npc = state_arc.lock().unwrap();
+        npc.nearby_items = body.nearby_items.iter()
+            .map(|i| (i.id.clone(), i.dist))
+            .collect();
+        npc.held_item = body.held_item.clone();
+        HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
+    } else {
+        HttpResponse::NotFound().json(serde_json::json!({ "error": "NPC not found" }))
+    }
+}
+
 async fn handle_player_update(
     players: web::Data<SharedPlayers>,
     body: web::Json<PlayerUpdateBody>,
@@ -1531,6 +1596,9 @@ async fn main() -> std::io::Result<()> {
         memory: HashMap::new(),
         message_queue: Vec::new(),
         tick_in_flight: false,
+        nearby_items: Vec::new(),
+        held_item: None,
+        last_autonomous_tick: std::time::Instant::now(),
     }));
 
     let thomas_state = make_npc_state(&THOMAS);
@@ -1583,6 +1651,7 @@ async fn main() -> std::io::Result<()> {
                     .add(("Access-Control-Allow-Methods", "GET, POST, OPTIONS"))
                     .add(("Access-Control-Allow-Headers", "Content-Type")),
             )
+            .route("/npc-context",   web::post().to(handle_npc_context))
             .route("/npc-message",   web::post().to(handle_npc_message))
             .route("/npc-message",   web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/npc-state",     web::get().to(handle_npc_state))

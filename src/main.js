@@ -782,7 +782,10 @@ function updatePeerHpBarPosition(peerId) {
   if (!character) return;
   const worldPos = new THREE.Vector3();
   character.getWorldPosition(worldPos);
-  worldPos.y += (character.totalHeight ?? 1.8) + 0.35;
+  // root is at eye height; head top is (totalHeight - eyeHeight) above root
+  const eyeH = character.eyeHeight ?? 1.09;
+  const totalH = character.totalHeight ?? 1.31;
+  worldPos.y += (totalH - eyeH) + 0.25;
   worldPos.project(camera);
   if (worldPos.z > 1) { entry.barEl.style.display = "none"; return; }
   entry.barEl.style.display = "block";
@@ -935,15 +938,20 @@ function makeGunMesh(key) {
     const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.22), makeMat(0x222222));
     barrel.position.set(0, 0.04, -0.18);
     g.add(barrel);
-    // Grip
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.13, 0.07), makeMat(0x1a1a1a));
+    // Grip (dark rubberised handle)
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.13, 0.07), makeMat(0x2a2218));
     grip.position.set(0, -0.12, 0.04);
     grip.rotation.x = 0.2;
     g.add(grip);
     // Trigger guard
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.08), makeMat(0x111111));
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.08), makeMat(0x222222));
     guard.position.set(0, -0.04, -0.02);
     g.add(guard);
+    // Hand / fingers — skin tone wrapping the grip
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.10, 0.09), makeMat(0xf5cba7));
+    hand.position.set(0, -0.17, 0.04);
+    hand.rotation.x = 0.2;
+    g.add(hand);
   } else {
     // Shotgun — longer, blockier
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.40), makeMat(0x5c3d1e));
@@ -959,6 +967,11 @@ function makeGunMesh(key) {
     const pump = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.14), makeMat(0x1a1a1a));
     pump.position.set(0, 0.03, 0.04);
     g.add(pump);
+    // Hand gripping the stock
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.09, 0.12), makeMat(0xf5cba7));
+    hand.position.set(0, -0.06, 0.20);
+    hand.rotation.x = -0.1;
+    g.add(hand);
   }
 
   // Muzzle point at barrel tip
@@ -977,9 +990,9 @@ function makeDetailedHand() {
   const skinColor = new THREE.Color(SKINS.player.opts.head.color);
   const nailColor = skinColor.clone().lerp(new THREE.Color("#fff"), 0.35);
   const knuckleColor = skinColor.clone().lerp(new THREE.Color("#000"), 0.12);
-  const skin = new THREE.MeshLambertMaterial({ color: skinColor });
-  const nail = new THREE.MeshLambertMaterial({ color: nailColor });
-  const knuckle = new THREE.MeshLambertMaterial({ color: knuckleColor });
+  const skin = new THREE.MeshBasicMaterial({ color: skinColor });
+  const nail = new THREE.MeshBasicMaterial({ color: nailColor });
+  const knuckle = new THREE.MeshBasicMaterial({ color: knuckleColor });
 
   const b = (w, h, d, mat = skin) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
 
@@ -1099,19 +1112,21 @@ function spawnMuzzleFlash() {
 // ── Bullet tracer ─────────────────────────────────────────────────────────────
 function spawnTracer(from, to, color) {
   const mat = new THREE.LineBasicMaterial({
-    color, transparent: true, opacity: 0.75,
+    color, transparent: true, opacity: 0.9,
     blending: THREE.AdditiveBlending, depthWrite: false,
+    linewidth: 2,
   });
   const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
   const line = new THREE.Line(geo, mat);
   world.add(line);
 
-  let age = 0;
+  let elapsed = 0;
+  const DURATION = 0.18; // seconds
   activeEffects.push({
     update(dt) {
-      age += dt;
-      mat.opacity = Math.max(0, 0.75 * (1 - age / 120));
-      if (age >= 120) {
+      elapsed += dt;
+      mat.opacity = Math.max(0, 0.9 * (1 - elapsed / DURATION));
+      if (elapsed >= DURATION) {
         world.remove(line);
         geo.dispose();
         mat.dispose();
@@ -1156,16 +1171,16 @@ function spawnHitSparks(point, normal) {
   world.add(sparks);
 
   let age = 0;
-  const LIFETIME = 350;
+  const LIFETIME = 0.5; // seconds
   activeEffects.push({
     update(dt) {
       age += dt;
       for (let i = 0; i < COUNT; i++) {
         const v = velocities[i];
-        positions[i*3]   += v.x * dt * 0.1;
-        positions[i*3+1] += v.y * dt * 0.1;
-        positions[i*3+2] += v.z * dt * 0.1;
-        v.y -= 0.0015 * dt; // gravity
+        positions[i*3]   += v.x * dt;
+        positions[i*3+1] += v.y * dt;
+        positions[i*3+2] += v.z * dt;
+        v.y -= 4 * dt; // gravity
       }
       posAttr.needsUpdate = true;
       mat.opacity = Math.max(0, 1 - age / LIFETIME);
@@ -1268,10 +1283,13 @@ function fireRay(dir) {
 
   peers.map.forEach((character, peerId) => {
     character.getWorldPosition(_peerWorldPos);
-    const h = character.totalHeight ?? 1.8;
+    // character root is at eye height — offset box to span feet→head
+    const eyeH  = character.eyeHeight  ?? 1.09;
+    const totalH = character.totalHeight ?? 1.31;
+    const halfW = 0.4; // slightly narrower than full body width for fair play
     _hitBox.set(
-      new THREE.Vector3(_peerWorldPos.x - 0.45, _peerWorldPos.y,     _peerWorldPos.z - 0.45),
-      new THREE.Vector3(_peerWorldPos.x + 0.45, _peerWorldPos.y + h, _peerWorldPos.z + 0.45),
+      new THREE.Vector3(_peerWorldPos.x - halfW, _peerWorldPos.y - eyeH,              _peerWorldPos.z - halfW),
+      new THREE.Vector3(_peerWorldPos.x + halfW, _peerWorldPos.y + (totalH - eyeH),   _peerWorldPos.z + halfW),
     );
     const intersect = new THREE.Vector3();
     if (_ray.intersectBox(_hitBox, intersect)) {
@@ -1419,9 +1437,31 @@ function fireWeapon() {
   }
 }
 
+let isPunching = false;
+function punchHand() {
+  if (isPunching) return;
+  isPunching = true;
+  const baseY = fpHand.userData.baseY ?? -0.28;
+  const baseZ = -0.38;
+  // Thrust forward and slightly up, then pull back
+  fpHand.position.z = baseZ - 0.18;
+  fpHand.position.y = baseY + 0.04;
+  fpHand.rotation.x = -0.15;
+  setTimeout(() => {
+    fpHand.position.z = baseZ;
+    fpHand.position.y = baseY;
+    fpHand.rotation.x = 0;
+    isPunching = false;
+  }, 160);
+}
+
 inputs.click("left", () => {
   if (!controls.isLocked || activeNpcDialog || localDead) return;
-  fireWeapon();
+  if (currentWeaponKey) {
+    fireWeapon();
+  } else {
+    punchHand();
+  }
 }, "in-game");
 
 inputs.bind("KeyR", () => {
@@ -1616,6 +1656,10 @@ function animate() {
     controls.update();
     perspective.update();
 
+    // Drive water ripple shader
+    const waterMat = world.getBlockFaceMaterial?.("Water", "top");
+    if (waterMat?.uniforms?.uTime) waterMat.uniforms.uTime.value = performance.now() / 1000;
+
 
     lightShined.update();
     shadows.update();
@@ -1646,11 +1690,11 @@ function animate() {
     }
 
     // Slide update
-    updateSlide(16);
+    updateSlide(_dt * 1000); // updateSlide expects ms
 
-    // Active effects (tracers, sparks)
+    // Active effects (tracers, sparks) — pass dt in seconds
     for (let i = activeEffects.length - 1; i >= 0; i--) {
-      if (!activeEffects[i].update(16)) activeEffects.splice(i, 1);
+      if (!activeEffects[i].update(_dt)) activeEffects.splice(i, 1);
     }
 
     // Inventory ground items + pickup tooltip
@@ -1762,6 +1806,38 @@ async function start() {
   await world.applyBlockTexture("Tent Canvas",     all, "/blocks/tent_canvas.png");
   await world.applyBlockTexture("Cardboard",       all, "/blocks/cardboard.png");
   await world.applyBlockTexture("Lamp",            all, "/blocks/glass.png");
+
+  // Water ripple shader
+  try {
+    world.customizeMaterialShaders("Water", "top", {
+      vertexShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+          pos.y += sin(pos.x * 5.0 + uTime * 2.5) * 0.04
+                 + cos(pos.z * 4.0 + uTime * 1.8) * 0.03;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        uniform sampler2D map;
+        void main() {
+          vec2 uv = vUv;
+          uv.x += sin(uv.y * 8.0 + uTime * 2.0) * 0.015;
+          uv.y += cos(uv.x * 6.0 + uTime * 1.5) * 0.015;
+          vec4 col = texture2D(map, uv);
+          col.rgb *= vec3(0.6, 0.85, 1.1); // blue tint
+          col.a = 0.82;
+          gl_FragColor = col;
+        }
+      `,
+      uniforms: { uTime: { value: 0 } },
+    });
+  } catch(e) { /* customizeMaterialShaders may not be available */ }
 }
 
 // ── Welcome screen ────────────────────────────────────────────────────────────
@@ -1778,6 +1854,7 @@ function submitWelcome() {
 
   playerName = name;
   mainCharacter.username = name;
+  peers.ownUsername = name;
 
   welcomeScreen.classList.add("hidden");
   // Kick off the game now
@@ -1799,6 +1876,7 @@ if (import.meta.env.DEV) {
   // Skip welcome screen in dev — use a fixed name so HMR reloads don't interrupt
   playerName = "dev";
   mainCharacter.username = "dev";
+  peers.ownUsername = "dev";
   welcomeScreen.classList.add("hidden");
   start();
 } else {
