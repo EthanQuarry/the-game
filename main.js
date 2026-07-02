@@ -49,6 +49,17 @@ rigidControls.connect(inputs);
 inputs.bind("g", rigidControls.toggleGhostMode);
 inputs.bind("f", rigidControls.toggleFly);
 
+const overlay = document.getElementById("overlay");
+overlay.addEventListener("click", () => {
+  rigidControls.lock();
+});
+rigidControls.on("lock", () => {
+  overlay.classList.add("hidden");
+});
+rigidControls.on("unlock", () => {
+  overlay.classList.remove("hidden");
+});
+
 function animate() {
   requestAnimationFrame(animate);
 

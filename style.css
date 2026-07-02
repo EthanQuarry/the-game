@@ -20,3 +20,43 @@ body {
   height: 100%;
   display: block;
 }
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  z-index: 10;
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+#overlay-content {
+  text-align: center;
+  color: #fff;
+  user-select: none;
+}
+
+#overlay-content h1 {
+  font-size: 2.5rem;
+  font-family: sans-serif;
+  margin-bottom: 0.5rem;
+}
+
+#overlay-content p {
+  font-size: 1.2rem;
+  font-family: sans-serif;
+  margin-bottom: 1rem;
+  opacity: 0.85;
+}
+
+#overlay-content span {
+  font-size: 0.85rem;
+  font-family: sans-serif;
+  opacity: 0.55;
+}
