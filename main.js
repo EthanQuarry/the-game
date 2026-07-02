@@ -25,6 +25,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio || 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
+world.add(ambientLight);
+const sunLight = new THREE.DirectionalLight(0xfff5e0, 2.5);
+sunLight.position.set(100, 200, 100);
+world.add(sunLight);
+
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -110,8 +116,8 @@ async function start() {
       name: "sunrise",
       color: {
         top: new THREE.Color("#7694CF"),
-        middle: new THREE.Color("#B0483A"),
-        bottom: new THREE.Color("#222"),
+        middle: new THREE.Color("#E8804A"),
+        bottom: new THREE.Color("#F5C07A"),
       },
       skyOffset: 0.05,
       voidOffset: 0.6,
@@ -120,9 +126,9 @@ async function start() {
     {
       name: "daylight",
       color: {
-        top: new THREE.Color("#73A3FB"),
-        middle: new THREE.Color("#B1CCFD"),
-        bottom: new THREE.Color("#222"),
+        top: new THREE.Color("#2E7FD9"),
+        middle: new THREE.Color("#71B4F5"),
+        bottom: new THREE.Color("#C8E8FF"),
       },
       skyOffset: 0,
       voidOffset: 0.6,
@@ -133,7 +139,7 @@ async function start() {
       color: {
         top: new THREE.Color("#A57A59"),
         middle: new THREE.Color("#FC5935"),
-        bottom: new THREE.Color("#222"),
+        bottom: new THREE.Color("#FFB347"),
       },
       skyOffset: 0.05,
       voidOffset: 0.6,
@@ -142,9 +148,9 @@ async function start() {
     {
       name: "night",
       color: {
-        top: new THREE.Color("#000"),
-        middle: new THREE.Color("#000"),
-        bottom: new THREE.Color("#000"),
+        top: new THREE.Color("#0a0a1a"),
+        middle: new THREE.Color("#0d0d22"),
+        bottom: new THREE.Color("#111122"),
       },
       skyOffset: 0.1,
       voidOffset: 0.6,
