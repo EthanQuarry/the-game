@@ -142,3 +142,13 @@ html, body { height: 100%; overflow: hidden; }
   color: #e0e0e0; font-family: monospace; font-size: 0.9rem;
   letter-spacing: 0.05em;
 }
+
+/* ── Hotbar ───────────────────────────────────────────────────────────────── */
+.item-slots-slot-focus {
+  border: 2px solid rgba(255, 220, 0, 0.9) !important;
+  background: rgba(255, 220, 0, 0.12) !important;
+}
+
+.item-slots-slot-hover {
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}

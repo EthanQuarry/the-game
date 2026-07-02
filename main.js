@@ -2,6 +2,12 @@ import * as VOXELIZE from "@voxelize/core";
 import * as THREE from "three";
 
 import "./style.css";
+import {
+  initHotbar, initPickupTooltip,
+  updateInventory, tryPickup, tryDrop, scrollHotbar,
+  addItem, refreshHotbar, getFocusedSlot, getSlot,
+  spawnGroundItem, setFocusedSlot,
+} from "./inventory.js";
 
 const canvas = document.getElementById("canvas");
 
@@ -300,6 +306,33 @@ function updateNPC() {
 inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
 
+// ── Inventory keybinds ────────────────────────────────────────────────────────
+
+// E — pick up nearest ground item
+inputs.bind("KeyE", () => {
+  const camPos = camera.getWorldPosition(new THREE.Vector3());
+  tryPickup(world, camPos);
+}, "in-game");
+
+// Q — drop focused hotbar item
+inputs.bind("KeyQ", () => {
+  const playerPos = rigidControls.position.clone();
+  const dir = rigidControls.getDirection();
+  tryDrop(world, playerPos, dir);
+}, "in-game");
+
+// Scroll wheel — cycle hotbar
+canvas.addEventListener("wheel", (e) => {
+  if (!rigidControls.isLocked) return;
+  scrollHotbar(e.deltaY);
+}, { passive: true });
+
+// Number keys 1–9 — jump to slot
+for (let k = 1; k <= 9; k++) {
+  const slot = k - 1;
+  inputs.bind(`Digit${k}`, () => setFocusedSlot(slot), "in-game");
+}
+
 rigidControls.on("lock", () => inputs.setNamespace("in-game"));
 rigidControls.on("unlock", () => inputs.setNamespace("menu"));
 
@@ -365,8 +398,14 @@ document.body.appendChild(fpsEl);
 let frameCount = 0;
 let lastFpsTime = performance.now();
 
+let lastTime = performance.now();
+
 function animate() {
   requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
 
   if (world.isInitialized) {
     world.update(
@@ -378,6 +417,7 @@ function animate() {
     lightShined.update();
     shadows.update();
     updateNPC();
+    updateInventory(world, rigidControls.position, dt);
   }
 
   renderer.render(world, camera);
@@ -394,6 +434,10 @@ function animate() {
 async function start() {
   animate();
 
+  // ── Inventory UI ────────────────────────────────────────────────────────────
+  initHotbar(document.body);
+  initPickupTooltip();
+
   await network.connect("http://localhost:4000");
   await network.join("tutorial");
 
@@ -405,10 +449,15 @@ async function start() {
 
   // Float in place until chunk [0,0] is ready, then land on the road
   rigidControls.toggleGhostMode();
-  // Spawn on the main road intersection (chunk 0,0 centre)
   world.addChunkInitListener([0, 0], () => {
     rigidControls.teleportToTop(8, 8);
     if (rigidControls.ghostMode) rigidControls.toggleGhostMode();
+
+    // Spawn a pistol + ammo on the ground near the player
+    const pistolMesh = spawnGroundItem("pistol", null, new THREE.Vector3(9, 13, 8));
+    if (pistolMesh) world.add(pistolMesh);
+    const ammoMesh = spawnGroundItem("ammo_9mm", { count: 24 }, new THREE.Vector3(10, 13, 9));
+    if (ammoMesh) world.add(ammoMesh);
   });
 
   world.sky.setShadingPhases([

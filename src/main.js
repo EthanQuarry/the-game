@@ -2,6 +2,12 @@ import * as VOXELIZE from "@voxelize/core";
 import "@voxelize/core/dist/styles.css";
 import * as THREE from "three";
 import "./style.css";
+import {
+  initHotbar, initPickupTooltip,
+  updateInventory, tryPickup, tryDrop,
+  addItem, refreshHotbar, getSlot, setFocusedSlot, getFocusedSlot,
+  spawnGroundItem,
+} from "./inventory.js";
 
 // ── Renderer & Camera ─────────────────────────────────────────────────────────
 
@@ -44,14 +50,33 @@ inputs.setNamespace("menu");
 const controls = new VOXELIZE.RigidControls(camera, renderer.domElement, world, {
   initialPosition: [0, 80, 0],
   flyForce: 400,
+  airJumps: 1,
+  alwaysSprint: true,      // Apex-style: always running at sprint speed when moving
+  sprintFactor: 1.6,       // 60% faster than base
+  maxSpeed: 8,
 });
 controls.connect(inputs, "in-game");
 
-// Register controls with network so server tracks player position for chunks
+// C = crouch; Shift = slide only (neutralise Shift's built-in crouch side-effect)
+inputs.bind("KeyC",      () => { controls.movements.down = true;  }, "in-game", { occasion: "keydown", identifier: "crouch-down"    });
+inputs.bind("KeyC",      () => { controls.movements.down = false; }, "in-game", { occasion: "keyup",   identifier: "crouch-up"      });
+inputs.bind("ShiftLeft", () => { controls.movements.down = false; }, "in-game", { occasion: "keydown", identifier: "shift-no-crouch" });
+
 network.register(controls);
 
-const perspective = new VOXELIZE.Perspective(controls, world);
-perspective.connect(inputs, "in-game");
+const perspective = new VOXELIZE.Perspective(controls, world, {
+  maxDistance: 6,   // how far back 3rd-person camera sits
+  lerpFactor: 0.12, // smooth transition
+});
+// Don't call perspective.connect — it binds KeyC (now crouch) and adds "second" state.
+// We manually bind V to toggle between first ↔ third only.
+inputs.bind("KeyV", () => {
+  if (perspective.state === "first") {
+    perspective.state = "third";
+  } else {
+    perspective.state = "first";
+  }
+}, "in-game", { identifier: "perspective-toggle" });
 
 // ── Peers (multiplayer characters) ───────────────────────────────────────────
 
@@ -277,7 +302,10 @@ renderer.setTransparentSort(VOXELIZE.TRANSPARENT_SORT(controls.object));
 // ── NPC system ────────────────────────────────────────────────────────────────
 
 const NPC_LLM_ENABLED = true;
-const NPC_API = "http://localhost:4001";
+// Auto-detect server so it works locally and on deployed domains
+const _host = window.location.hostname;
+const NPC_API = `http://${_host}:4001`;
+const VOXELIZE_SERVER = `http://${_host}:4000`;
 const playerId   = Math.random().toString(36).slice(2, 10);
 const playerName = "Player" + playerId.slice(0, 4);
 
@@ -323,11 +351,11 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [13, 15.3, 10],
-  market:  [20, 15.3, 4],
-  well:    [28, 15.3, 12],
-  shelter: [4,  15.3, 20],
-  road:    [8,  15.3, 8],
+  tent:    [13, 13.5, 10],
+  market:  [20, 13.5, 4],
+  well:    [28, 13.5, 12],
+  shelter: [4,  13.5, 20],
+  road:    [8,  13.5, 8],
 };
 
 const npcs = new Map();
@@ -355,26 +383,26 @@ function createNpc(id, name, spawnPos, skinName) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas",  [13,  15.3, 10],  "thomas");
-createNpc("marcus", "Marcus",  [-8,  15.3, 20],  "marcus");
-createNpc("diane",  "Diane",   [20,  15.3, -6],  "diane");
-createNpc("ray",    "Ray",     [-8,  15.3, -6],  "ray");
+createNpc("thomas", "Thomas",  [13,  13.5, 10],  "thomas");
+createNpc("marcus", "Marcus",  [-8,  13.5, 20],  "marcus");
+createNpc("diane",  "Diane",   [20,  13.5, -6],  "diane");
+createNpc("ray",    "Ray",     [-8,  13.5, -6],  "ray");
 
 // NPC waypoint tables (used by SSE handler for move_to_waypoint)
 const NPC_WAYPOINTS = {
   thomas: {
-    tent:    [13, 15.3, 10],  market: [20, 15.3, 4],
-    well:    [28, 15.3, 12], shelter: [4,  15.3, 20],
-    road:    [8,  15.3, 8],
+    tent:    [13, 13.5, 10],  market: [20, 13.5, 4],
+    well:    [28, 13.5, 12], shelter: [4,  13.5, 20],
+    road:    [8,  13.5, 8],
   },
   marcus: {
-    stairwell: [-8, 15.3, 20], corner: [-4, 15.3, 8], road: [8, 15.3, 8],
+    stairwell: [-8, 13.5, 20], corner: [-4, 13.5, 8], road: [8, 13.5, 8],
   },
   diane: {
-    bodega: [20, 15.3, -6], doorway: [22, 15.3, -10], road: [8, 15.3, 8],
+    bodega: [20, 13.5, -6], doorway: [22, 13.5, -10], road: [8, 13.5, 8],
   },
   ray: {
-    shop: [-8, 15.3, -6], doorway: [-6, 15.3, -10], alley: [-4, 15.3, -14],
+    shop: [-8, 13.5, -6], doorway: [-6, 13.5, -10], alley: [-4, 13.5, -14],
   },
 };
 
@@ -470,7 +498,7 @@ function updateNpcMovement(npc) {
       const step = Math.min(speed, dist);
       pos.x += (dx / dist) * step;
       pos.z += (dz / dist) * step;
-      pos.y = 15.3;
+      pos.y = 13.5;
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {
@@ -635,12 +663,25 @@ giveBtn.addEventListener("click", () => {
 
 inputs.bind("KeyE", () => {
   if (activeNpcDialog) { closeDialog(); return; }
+  // Try inventory pickup first
+  const camPos = controls.object.getWorldPosition(new THREE.Vector3());
+  const pickedUp = tryPickup(world, camPos);
+  if (pickedUp) { syncWeaponToSlot(getFocusedSlot()); return; }
+  // Otherwise open NPC dialog
   const pp = controls.position; let nearest = null, nearestDist = Infinity;
   for (const [id, npc] of npcs) {
     const d = Math.sqrt((npc.pos.x-pp.x)**2 + (npc.pos.z-pp.z)**2);
     if (d < 4 && d < nearestDist) { nearest = id; nearestDist = d; }
   }
   if (nearest) openDialog(nearest);
+}, "in-game");
+
+// Q — drop focused hotbar item
+inputs.bind("KeyQ", () => {
+  const dir = new THREE.Vector3();
+  controls.object.getWorldDirection(dir);
+  tryDrop(world, controls.position, dir);
+  syncWeaponToSlot(getFocusedSlot());
 }, "in-game");
 
 function checkDialogDistance() {
@@ -675,8 +716,8 @@ const WEAPONS = {
   },
 };
 const weaponOrder = ["pistol", "shotgun"];
-let currentWeaponKey = "pistol";
-let currentWeapon = WEAPONS.pistol;
+let currentWeaponKey = null; // null = no weapon equipped
+let currentWeapon = null;
 let lastFireTime = 0;
 
 // ── HUD refs ─────────────────────────────────────────────────────────────────
@@ -747,9 +788,8 @@ const muzzleFlashes = {};
 
 for (const key of weaponOrder) {
   const mesh = makeGunMesh(key);
-  // Position in camera space: right, down, forward
   mesh.position.set(0.26, -0.22, -0.42);
-  mesh.visible = key === currentWeaponKey;
+  mesh.visible = false; // hidden until picked up
   camera.add(mesh);
   gunGroups[key] = mesh;
 
@@ -879,18 +919,39 @@ function flashCrosshair() {
 
 // ── Weapon switch ─────────────────────────────────────────────────────────────
 function equipWeapon(key) {
-  if (!WEAPONS[key] || key === currentWeaponKey) return;
-  gunGroups[currentWeaponKey].visible = false;
+  if (!WEAPONS[key]) return;
+  // Only equip if player actually has this weapon in their hotbar
+  let hasIt = false;
+  for (let i = 0; i < 9; i++) { const s = getSlot(i); if (s && s.id === key) { hasIt = true; break; } }
+  if (!hasIt) return;
+
+  if (currentWeaponKey) gunGroups[currentWeaponKey].visible = false;
   currentWeaponKey = key;
   currentWeapon = WEAPONS[key];
   gunGroups[key].visible = perspective.state === "first";
   weaponNameEl.textContent = currentWeapon.name;
 
-  // Bob animation
   const mesh = gunGroups[key];
   const origY = mesh.position.y;
   mesh.position.y = origY - 0.12;
   setTimeout(() => { mesh.position.y = origY; }, 80);
+}
+
+// Called by hotbar focus change to auto-equip/unequip based on what's in the slot
+function syncWeaponToSlot(slotIndex) {
+  const s = getSlot(slotIndex);
+  const key = s && WEAPONS[s.id] ? s.id : null;
+  if (key) {
+    equipWeapon(key);
+  } else {
+    // Unequip — hide current gun
+    if (currentWeaponKey) {
+      gunGroups[currentWeaponKey].visible = false;
+      currentWeaponKey = null;
+      currentWeapon = null;
+      weaponNameEl.textContent = "";
+    }
+  }
 }
 
 function cycleWeapon(dir) {
@@ -924,9 +985,21 @@ function fireRay(dir) {
 }
 
 function fireWeapon() {
+  if (!currentWeapon) return;
   const now = performance.now();
   if (now - lastFireTime < currentWeapon.fireRate) return;
+
+  // Ammo check — find a hotbar slot matching the current weapon
+  let ammoSlot = null;
+  for (let i = 0; i < 9; i++) {
+    const s = getSlot(i);
+    if (s && s.id === currentWeaponKey && s.data.ammo > 0) { ammoSlot = s; break; }
+  }
+  if (!ammoSlot) return; // no gun or out of ammo
+
   lastFireTime = now;
+  ammoSlot.data.ammo -= 1;
+  refreshHotbar();
 
   spawnMuzzleFlash();
   applyRecoil(currentWeapon.recoil);
@@ -962,6 +1035,103 @@ inputs.scroll(
 
 inputs.bind("Digit1", () => equipWeapon("pistol"),  "in-game");
 inputs.bind("Digit2", () => equipWeapon("shotgun"), "in-game");
+
+// ── Slide system (Sojourn-style) ──────────────────────────────────────────────
+
+const SLIDE_DURATION   = 650;   // ms slide lasts
+const SLIDE_IMPULSE    = 14;    // forward boost on slide start
+const SLIDE_FOV_BOOST  = 15;    // extra FOV degrees during slide
+const BASE_FOV         = camera.fov;
+
+let isSliding       = false;
+let slideTimer      = 0;
+let slideCamRoll    = 0;   // camera Z-roll tilt during slide
+
+function startSlide() {
+  if (isSliding) return;
+  // Must be on the ground
+  if (controls.body.resting[1] !== -1) return;
+  isSliding  = true;
+  slideTimer = SLIDE_DURATION;
+
+  // Build slide direction from held WASD keys, rotated by player yaw
+  const { front, back, left, right } = controls.movements;
+  let mx = 0, mz = 0;
+  if (front) mz =  1;
+  if (back)  mz = -1;
+  if (left)  mx = -1;
+  if (right) mx =  1;
+  // Fall back to camera forward if no keys held
+  if (mx === 0 && mz === 0) mz = 1;
+
+  // Rotate input by heading (the yaw the physics engine uses)
+  const h = controls.state.heading;
+  const cos = Math.cos(h), sin = Math.sin(h);
+  const wx = mx * cos - mz * sin;
+  const wz = mx * sin + mz * cos;
+
+  const len = Math.sqrt(wx * wx + wz * wz) || 1;
+  controls.body.applyImpulse([
+    (wx / len) * SLIDE_IMPULSE,
+    0,
+    (wz / len) * SLIDE_IMPULSE,
+  ]);
+
+  // Kill vertical friction so we glide
+  controls.body.friction = 0.01;
+}
+
+function updateSlide(dt) {
+  if (!isSliding) {
+    // Smoothly return FOV and roll to normal
+    if (camera.fov !== BASE_FOV) {
+      camera.fov += (BASE_FOV - camera.fov) * 0.18;
+      if (Math.abs(camera.fov - BASE_FOV) < 0.1) camera.fov = BASE_FOV;
+      camera.updateProjectionMatrix();
+    }
+    if (Math.abs(slideCamRoll) > 0.001) {
+      slideCamRoll *= 0.82;
+      camera.rotation.z = slideCamRoll;
+    } else if (slideCamRoll !== 0) {
+      slideCamRoll = 0;
+      camera.rotation.z = 0;
+    }
+    return;
+  }
+
+  slideTimer -= dt;
+
+  // Cancel slide if airborne or timer expired
+  if (slideTimer <= 0 || controls.body.resting[1] !== -1 && slideTimer < SLIDE_DURATION - 80) {
+    isSliding = false;
+    controls.body.friction = 0.6; // restore normal friction
+    return;
+  }
+
+  // Progress 0→1 over slide duration
+  const t = 1 - slideTimer / SLIDE_DURATION;
+
+  // FOV zoom out during first half, return during second half
+  const fovCurve = t < 0.5 ? t * 2 : (1 - t) * 2;
+  camera.fov = BASE_FOV + SLIDE_FOV_BOOST * fovCurve;
+  camera.updateProjectionMatrix();
+
+  // Camera tilt: roll slightly in slide direction, ease back
+  const targetRoll = -0.12 * (1 - t);
+  slideCamRoll += (targetRoll - slideCamRoll) * 0.25;
+  camera.rotation.z = slideCamRoll;
+
+  // Camera dips slightly (crouch feel) — pitch down a tiny bit at slide peak
+  const dip = Math.sin(t * Math.PI) * 0.04;
+  camera.position.y = -dip;
+}
+
+// Shift to slide (when on ground + moving); Shift mid-air = nothing (airJumps handles it)
+inputs.bind("ShiftLeft", () => {
+  if (controls.isLocked && !isSliding && controls.body.resting[1] === -1) {
+    startSlide();
+  }
+}, "in-game", { occasion: "keydown", identifier: "slide" });
 
 // ── Key bindings ──────────────────────────────────────────────────────────────
 
@@ -1022,14 +1192,27 @@ let frames = 0, lastFpsTime = performance.now();
 
 // ── Animate loop ──────────────────────────────────────────────────────────────
 
+let _lastTime = performance.now();
+
 function animate() {
   requestAnimationFrame(animate);
+
+  const _now = performance.now();
+  const _dt = Math.min((_now - _lastTime) / 1000, 0.1);
+  _lastTime = _now;
 
   if (world.isInitialized) {
     // Use controls.object.position (official demo pattern)
     world.update(controls.object.position, camera.getWorldDirection(new THREE.Vector3()));
     controls.update();
     perspective.update();
+
+    // Silent Hill-style offset: shift camera right in 3rd person
+    if (perspective.state !== "first") {
+      camera.position.x += 1.4;  // world-space right offset (lerps naturally via Perspective)
+      camera.position.y += 0.3;  // slightly above shoulder height
+    }
+
     lightShined.update();
     shadows.update();
     peers.update();
@@ -1056,13 +1239,19 @@ function animate() {
       }
     }
 
+    // Slide update
+    updateSlide(16);
+
     // Active effects (tracers, sparks)
     for (let i = activeEffects.length - 1; i >= 0; i--) {
       if (!activeEffects[i].update(16)) activeEffects.splice(i, 1);
     }
 
-    // Gun visibility: only in first-person
-    gunGroups[currentWeaponKey].visible = perspective.state === "first";
+    // Inventory ground items + pickup tooltip
+    updateInventory(world, controls.position, _dt);
+
+    // Gun visibility: only in first-person, only if equipped
+    if (currentWeaponKey) gunGroups[currentWeaponKey].visible = perspective.state === "first";
   }
 
   renderer.render(world, camera);
@@ -1080,7 +1269,14 @@ function animate() {
 async function start() {
   animate();
 
-  await network.connect("http://localhost:4000");
+  // Init hotbar UI
+  const hotbar = initHotbar(document.body);
+  initPickupTooltip();
+  hotbar.onFocusChange((_prev, next) => {
+    if (next) syncWeaponToSlot(next.col);
+  });
+
+  await network.connect(VOXELIZE_SERVER);
   await network.join("tutorial");
   await world.initialize();
 
@@ -1097,6 +1293,16 @@ async function start() {
   world.addChunkInitListener([0, 0], () => {
     controls.teleportToTop(8, 8);
     if (controls.ghostMode) controls.toggleGhostMode();
+
+    // Spawn weapons on the ground — player must walk up and press E
+    [
+      ["pistol",   new THREE.Vector3(10, 13.15, 8)],
+      ["shotgun",  new THREE.Vector3(12, 13.15, 8)],
+      ["ammo_9mm", new THREE.Vector3(11, 13.15, 9)],
+    ].forEach(([id, pos]) => {
+      const m = spawnGroundItem(id, null, pos);
+      if (m) world.add(m);
+    });
   });
 
   // Sky
