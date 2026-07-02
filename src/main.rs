@@ -207,10 +207,10 @@ async fn main() -> std::io::Result<()> {
     let cobble     = Block::new("Cobblestone").id(8).build();
 
     let config = WorldConfig::new()
-        .min_chunk([-16, -16])
-        .max_chunk([16, 16])
+        .min_chunk([-128, -128])
+        .max_chunk([128, 128])
         .time_per_day(24000)
-        .default_time(1000.0)
+        .default_time(12000.0)
         .build();
 
     let mut world = World::new("tutorial", &config);
