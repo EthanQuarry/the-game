@@ -1,3 +1,4 @@
+use dotenvy::dotenv;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -211,16 +212,16 @@ struct NpcDef {
 // ── NPC definitions ───────────────────────────────────────────────────────────
 
 static THOMAS_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
-    ("market",  (12.0, 13.0, 12.0)),
-    ("well",    (28.0, 13.0, 12.0)),
-    ("shelter", (12.0, 13.0, 28.0)),
-    ("road",    (8.0,  13.0, 8.0)),
+    ("market",  (12.0, 12.8, 12.0)),
+    ("well",    (28.0, 12.8, 12.0)),
+    ("shelter", (12.0, 12.8, 28.0)),
+    ("road",    (8.0,  12.8, 8.0)),
 ];
 
 static THOMAS: NpcDef = NpcDef {
     id: "thomas",
     name: "Thomas",
-    spawn: (12.0, 13.0, 12.0),
+    spawn: (12.0, 12.8, 12.0),
     personality_prompt: "You are Thomas, a nervous merchant NPC in a voxel city.\n\n\
 PERSONALITY: Cautious and easily flustered. Talks too much when anxious.\n\
 Dislikes being ignored. Warms up to players who chat regularly.\n\
@@ -296,9 +297,17 @@ fn sigv4_headers(
         host, payload_hash, datetime_str
     );
     let signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date";
+    // SigV4 canonical URI: encode everything except unreserved chars + forward slash.
+    // The colon in Bedrock model IDs like "v1:0" must be percent-encoded as %3A.
+    let canonical_uri: String = path.chars().map(|c| {
+        match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' | '/' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        }
+    }).collect();
     let canonical_request = format!(
         "{}\n{}\n\n{}\n{}\n{}",
-        method, path, canonical_headers, signed_headers, payload_hash
+        method, canonical_uri, canonical_headers, signed_headers, payload_hash
     );
     let credential_scope = format!("{}/{}/{}/aws4_request", date_str, creds.region, service);
     let string_to_sign = format!(
@@ -344,7 +353,7 @@ async fn call_bedrock(
     });
     let body_bytes = serde_json::to_vec(&body).unwrap();
 
-    let model_id = "anthropic.claude-haiku-4-5";
+    let model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
     let host = format!("bedrock-runtime.{}.amazonaws.com", creds.region);
     let path = format!("/model/{}/invoke", model_id);
     let url = format!("https://{}{}", host, path);
@@ -652,6 +661,14 @@ struct NpcMessageBody {
     message: String,
 }
 
+async fn handle_options() -> HttpResponse {
+    HttpResponse::Ok()
+        .insert_header(("Access-Control-Allow-Origin", "*"))
+        .insert_header(("Access-Control-Allow-Methods", "GET, POST, OPTIONS"))
+        .insert_header(("Access-Control-Allow-Headers", "Content-Type"))
+        .finish()
+}
+
 async fn handle_npc_message(
     npc_map: web::Data<NpcMap>,
     body: web::Json<NpcMessageBody>,
@@ -760,6 +777,7 @@ async fn handle_player_leave(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv().ok(); // load .env if present
     let dirt       = Block::new("Dirt").id(1).build();
     let stone      = Block::new("Stone").id(2).build();
     let grass      = Block::new("Grass Block").id(3).build();
@@ -863,10 +881,13 @@ async fn main() -> std::io::Result<()> {
                     .add(("Access-Control-Allow-Headers", "Content-Type")),
             )
             .route("/npc-message",   web::post().to(handle_npc_message))
+            .route("/npc-message",   web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/npc-state",     web::get().to(handle_npc_state))
             .route("/npc-events",    web::get().to(handle_npc_events))
             .route("/player-update", web::post().to(handle_player_update))
+            .route("/player-update", web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/player-leave",  web::post().to(handle_player_leave))
+            .route("/player-leave",  web::method(actix_web::http::Method::OPTIONS).to(handle_options))
     })
     .bind("0.0.0.0:4001")?
     .run();

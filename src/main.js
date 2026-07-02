@@ -96,7 +96,7 @@ renderer.setTransparentSort(VOXELIZE.TRANSPARENT_SORT(controls.object));
 
 // ── NPC system ────────────────────────────────────────────────────────────────
 
-const NPC_LLM_ENABLED = false;
+const NPC_LLM_ENABLED = true;
 const NPC_API = "http://localhost:4001";
 const playerId   = Math.random().toString(36).slice(2, 10);
 const playerName = "Player" + playerId.slice(0, 4);
@@ -142,10 +142,10 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  market:  [12, 13, 12],
-  well:    [28, 13, 12],
-  shelter: [12, 13, 28],
-  road:    [8,  13, 8],
+  market:  [12, 12.8, 12],
+  well:    [28, 12.8, 12],
+  shelter: [12, 12.8, 28],
+  road:    [8,  12.8, 8],
 };
 
 const npcs = new Map();
@@ -171,7 +171,7 @@ function createNpc(id, name, spawnPos) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas", [12, 13, 12]);
+createNpc("thomas", "Thomas", [12, 12.8, 12]);
 
 const NPC_SPEED = 0.06;
 
@@ -185,7 +185,7 @@ function updateNpcMovement(npc) {
       npc.pathIndex++;
     } else {
       const step = Math.min(NPC_SPEED, dist);
-      pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; pos.y = 13;
+      pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; pos.y = 12.8;
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {
