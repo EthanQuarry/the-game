@@ -129,7 +129,8 @@ function astar(sx, sz, gx, gz) {
       const nx = curr.x + dx, nz = curr.z + dz, nk = key(nx, nz);
       if (closed.has(nk)) continue;
       if (Math.abs(nx - sx) + Math.abs(nz - sz) > MAX) continue;
-      const blocked = world.isInitialized && (world.getVoxelAt(nx, 13, nz) !== 0 || world.getVoxelAt(nx, 14, nz) !== 0);
+      // Blocked if any solid block exists at ground level or above in this column
+      const blocked = !world.isInitialized || world.getMaxHeightAt(nx, nz) > 12;
       if (blocked) continue;
       const tg = (gScore.get(ck) ?? Infinity) + 1;
       if (tg < (gScore.get(nk) ?? Infinity)) {
@@ -142,10 +143,11 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  market:  [12, 12.8, 12],
-  well:    [28, 12.8, 12],
-  shelter: [12, 12.8, 28],
-  road:    [8,  12.8, 8],
+  tent:    [12, 14.5, 12],
+  market:  [20, 14.5, 4],
+  well:    [28, 14.5, 12],
+  shelter: [4,  14.5, 20],
+  road:    [8,  14.5, 8],
 };
 
 const npcs = new Map();
@@ -171,9 +173,9 @@ function createNpc(id, name, spawnPos) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas", [12, 12.8, 12]);
+createNpc("thomas", "Thomas", [12, 14.5, 12]);
 
-const NPC_SPEED = 0.06;
+const NPC_SPEED = 0.025;
 
 function updateNpcMovement(npc) {
   const { character, path, pos } = npc;
@@ -185,7 +187,7 @@ function updateNpcMovement(npc) {
       npc.pathIndex++;
     } else {
       const step = Math.min(NPC_SPEED, dist);
-      pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; pos.y = 12.8;
+      pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; pos.y = 14.5;
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {

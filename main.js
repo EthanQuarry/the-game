@@ -70,8 +70,9 @@ const npc = createCharacter();
 npc.username = "Villager";
 npc.bodyColor = "#4a7c59";
 
-const NPC_SPAWN = new THREE.Vector3(12, 0, 12);
-const NPC_RADIUS = 8;
+// Thomas patrols in front of the YC office plaza (chunk -2,0 south face ~x=-26, z=-4)
+const NPC_SPAWN = new THREE.Vector3(-26, 0, -4);
+const NPC_RADIUS = 6;
 const NPC_SPEED = 0.015;
 let npcAngle = 0;
 let npcPos = NPC_SPAWN.clone();
@@ -211,6 +212,7 @@ async function start() {
 
   // Float in place until chunk [0,0] is ready, then land on the road
   rigidControls.toggleGhostMode();
+  // Spawn on the main road intersection (chunk 0,0 centre)
   world.addChunkInitListener([0, 0], () => {
     rigidControls.teleportToTop(8, 8);
     if (rigidControls.ghostMode) rigidControls.toggleGhostMode();
@@ -250,6 +252,16 @@ async function start() {
   await world.applyBlockTexture("Wood", allFaces, "/blocks/wood.png");
   await world.applyBlockTexture("Dark Stone", allFaces, "/blocks/dark_stone.png");
   await world.applyBlockTexture("Cobblestone", allFaces, "/blocks/cobblestone.png");
+
+  // SF district blocks — reuse existing textures
+  await world.applyBlockTexture("Water",           allFaces, "/blocks/glass.png");
+  await world.applyBlockTexture("Sand",            allFaces, "/blocks/dirt.png");
+  await world.applyBlockTexture("Plank",           allFaces, "/blocks/wood.png");
+  await world.applyBlockTexture("Orange Concrete", allFaces, "/blocks/brick.png");
+  await world.applyBlockTexture("White Concrete",  allFaces, "/blocks/stone.png");
+  await world.applyBlockTexture("Steel",           allFaces, "/blocks/dark_stone.png");
+  await world.applyBlockTexture("Tent Canvas",     allFaces, "/blocks/cobblestone.png");
+  await world.applyBlockTexture("Cardboard",       allFaces, "/blocks/dirt.png");
 }
 
 start();
