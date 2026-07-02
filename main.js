@@ -256,11 +256,17 @@ async function start() {
   // SF district blocks — reuse existing textures
   await world.applyBlockTexture("Water",           allFaces, "/blocks/glass.png");
   await world.applyBlockTexture("Sand",            allFaces, "/blocks/dirt.png");
+  // Bridge road deck — wood planks
   await world.applyBlockTexture("Plank",           allFaces, "/blocks/wood.png");
+  // YC building — orange/brick facade
   await world.applyBlockTexture("Orange Concrete", allFaces, "/blocks/brick.png");
-  await world.applyBlockTexture("White Concrete",  allFaces, "/blocks/stone.png");
+  // YC interior — use cobblestone (clean grey grid, no "?" look)
+  await world.applyBlockTexture("White Concrete",  allFaces, "/blocks/cobblestone.png");
+  // VC tower steel — dark stone
   await world.applyBlockTexture("Steel",           allFaces, "/blocks/dark_stone.png");
-  await world.applyBlockTexture("Tent Canvas",     allFaces, "/blocks/cobblestone.png");
+  // Encampment tent — stone (neutral grey)
+  await world.applyBlockTexture("Tent Canvas",     allFaces, "/blocks/stone.png");
+  // Cardboard — dirt (flat brown)
   await world.applyBlockTexture("Cardboard",       allFaces, "/blocks/dirt.png");
 }
 

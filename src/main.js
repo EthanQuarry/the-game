@@ -191,17 +191,8 @@ function updateNpcMovement(npc) {
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {
+    // Idle — face forward, wait for LLM to give next movement
     character.set([pos.x, pos.y, pos.z], [0, 0, 1]);
-    // patrol: pick a random waypoint when idle
-    if (npc.path.length === 0 && !npc._patrolTimer) {
-      npc._patrolTimer = setTimeout(() => {
-        npc._patrolTimer = null;
-        const wps = Object.values(THOMAS_WAYPOINTS);
-        const [tx, , tz] = wps[Math.floor(Math.random() * wps.length)];
-        const p = astar(npc.pos.x, npc.pos.z, tx, tz);
-        if (p.length > 0) { npc.path = p; npc.pathIndex = 0; }
-      }, 2000 + Math.random() * 3000);
-    }
   }
   character.update();
 }

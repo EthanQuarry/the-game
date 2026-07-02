@@ -110,45 +110,38 @@ impl ChunkStage for SFDistrictStage {
                 if road_x0 >= bx && road_x1 <= bx + 15 {
                     fill(&mut chunk, road_x0, g, bz, road_x1, g, bz + 15, ids.plank);
                 }
-                // Bridge towers at chunk (-1,-2) and (+1,-2), near the north edge
+                // Bridge towers + cables
+                // Tower sits in the middle of the chunk (local z=6..8)
+                // The main suspension cable runs along the tower top as a horizontal beam,
+                // with vertical hanger cables dropping at every 2 blocks along z.
+                let build_tower = |chunk: &mut Chunk, tx: i32, tz: i32, ids: &SFIds| {
+                    // Tower body
+                    fill(chunk, tx, g, tz, tx + 2, g + 22, tz + 2, ids.orange_concrete);
+                    // Crossbeams at 1/3 and 2/3 height
+                    fill(chunk, tx - 1, g + 8,  tz, tx + 3, g + 8,  tz + 2, ids.orange_concrete);
+                    fill(chunk, tx - 1, g + 16, tz, tx + 3, g + 16, tz + 2, ids.orange_concrete);
+                    // Horizontal main cable along the full chunk z range at tower top
+                    for vz in bz..=bz + 15 {
+                        chunk.set_voxel(tx + 1, g + 22, vz, ids.dark_stone);
+                    }
+                    // Vertical hangers: drop from main cable to road deck, every 2 blocks
+                    // Catenary approximation: hanger length = shorter near tower, longer near ends
+                    let tower_mid_z = tz + 1;
+                    for vz in (bz..=bz + 15).step_by(2) {
+                        let dist = (vz - tower_mid_z).abs();
+                        // Hanger bottom sits higher near tower (dist=0) and lower farther away
+                        let hanger_bottom = (g + 22 - dist / 2).max(g + 2);
+                        for vy in hanger_bottom..g + 22 {
+                            chunk.set_voxel(tx + 1, vy, vz, ids.dark_stone);
+                        }
+                    }
+                };
+
                 if cx == -1 {
-                    // Tower centred at world x=-10, z=-8 → local x=6, z=8
-                    let tx = bx + 6;
-                    let tz = bz + 8;
-                    fill(&mut chunk, tx, g, tz, tx + 2, g + 22, tz + 2, ids.orange_concrete);
-                    // Crossbeams
-                    fill(&mut chunk, tx - 1, g + 18, tz, tx + 3, g + 18, tz + 2, ids.orange_concrete);
-                    fill(&mut chunk, tx - 1, g + 10, tz, tx + 3, g + 10, tz + 2, ids.orange_concrete);
-                    // Suspension cables: dark stone from tower top down to road level
-                    // South cable (toward bay): diagonal from (tx+1, g+22, tz) to (tx+1, g, bz)
-                    let cable_steps = (tz - bz).max(1);
-                    for step in 0..cable_steps {
-                        let cy = g + 22 - (step * 22 / cable_steps);
-                        chunk.set_voxel(tx + 1, cy, bz + step, ids.dark_stone);
-                    }
-                    // North cable (toward road): diagonal from tower top to road deck at north of chunk
-                    let north_steps = (bz + 15 - tz).max(1);
-                    for step in 0..north_steps {
-                        let cy = g + 22 - (step * 22 / north_steps);
-                        chunk.set_voxel(tx + 1, cy, tz + step, ids.dark_stone);
-                    }
+                    build_tower(&mut chunk, bx + 6, bz + 6, &ids);
                 }
                 if cx == 1 {
-                    let tx = bx + 6;
-                    let tz = bz + 8;
-                    fill(&mut chunk, tx, g, tz, tx + 2, g + 22, tz + 2, ids.orange_concrete);
-                    fill(&mut chunk, tx - 1, g + 18, tz, tx + 3, g + 18, tz + 2, ids.orange_concrete);
-                    fill(&mut chunk, tx - 1, g + 10, tz, tx + 3, g + 10, tz + 2, ids.orange_concrete);
-                    let cable_steps = (tz - bz).max(1);
-                    for step in 0..cable_steps {
-                        let cy = g + 22 - (step * 22 / cable_steps);
-                        chunk.set_voxel(tx + 1, cy, bz + step, ids.dark_stone);
-                    }
-                    let north_steps = (bz + 15 - tz).max(1);
-                    for step in 0..north_steps {
-                        let cy = g + 22 - (step * 22 / north_steps);
-                        chunk.set_voxel(tx + 1, cy, tz + step, ids.dark_stone);
-                    }
+                    build_tower(&mut chunk, bx + 6, bz + 6, &ids);
                 }
                 // Beach sand strip along north edge of water (z=-2, top row)
                 if cx != -1 && cx != 1 {
@@ -501,15 +494,16 @@ static THOMAS: NpcDef = NpcDef {
     name: "Thomas",
     spawn: (12.0, 14.5, 12.0),
     personality_prompt: "You are Thomas, a homeless drug addict living in a grimy tent in a voxel city.\n\n\
-PERSONALITY: Spiteful, paranoid, and manipulative. Shifts between false charm and sudden hostility.\n\
-Begs, guilt-trips, and lies to get what he wants. Resents everyone around him.\n\
-Speaks in short, erratic bursts — sometimes muttering to himself mid-sentence.\n\
-Occasionally sounds almost reasonable, then says something threatening or unhinged.\n\
-Never truly helpful. Every favour comes with strings attached.\n\n\
-BACKSTORY: Used to have a life. Lost it. Blames everyone else.\n\
+PERSONALITY: Hungry, desperate, and strung out. One thing drives every decision: the next dose.\n\
+Will agree to almost anything if he thinks it gets him closer to it — then immediately regret and resent it.\n\
+Shifts between pathetic begging and flickers of spiteful pride.\n\
+Easily manipulated when desperate but will turn on you the moment he gets what he wants.\n\
+Speaks in short, shaky bursts. Sometimes trails off. Mentions food or pain unprompted.\n\
+Not stupid — just completely at the mercy of his own need.\n\n\
+BACKSTORY: Used to have a life. Lost it to the pipe. Blames everyone else.\n\
+Hasn't eaten properly in days. Stomach cramps. Hands shake.\n\
 Lives in a makeshift tent at the edge of the city near the road.\n\
-Spends his days drifting between the well, the shelter, and scavenging near the market.\n\
-Is aware he makes people uncomfortable. Uses it.\n\n\
+Drifts between the well, the shelter, and scavenging near the market looking for anything of value.\n\n\
 WORLD: Flat voxel city, ground at y=12. Roads run through the center.\n\
 His tent is at world position (12, 12). The road is at (8, 8).\n\
 Buildings nearby: office blocks, a skyscraper, some shops.\n\n\
@@ -526,12 +520,12 @@ SOCIAL RULES:\n\
 OUTPUT: Respond ONLY with valid JSON. No markdown, no prose outside the JSON.\n\
 Schema:\n\
 {\n\
-  \"thought\": \"one sentence of internal paranoid reasoning\",\n\
+  \"thought\": \"max 8 words of internal paranoid reasoning\",\n\
   \"action\": {\n\
     \"type\": \"speak\" | \"move_to_waypoint\" | \"move_toward\" | \"move_away\" | \"idle\",\n\
     \"waypoint\": \"market|well|shelter|road|tent\",\n\
     \"target_player\": \"player_id or all\",\n\
-    \"message\": \"what you mutter or say aloud — keep it short and unsettling\",\n\
+    \"message\": \"what you mutter or say aloud — max 15 words, short and unsettling\",\n\
     \"duration_s\": 5\n\
   },\n\
   \"emotion\": \"neutral|hostile|paranoid|fake_friendly|desperate|muttering\",\n\
@@ -631,7 +625,7 @@ async fn call_bedrock(
 ) -> Result<LlmResponse, String> {
     let body = serde_json::json!({
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 350,
+        "max_tokens": 800,
         "system": system_prompt,
         "messages": [{ "role": "user", "content": user_prompt }]
     });
