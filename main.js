@@ -153,6 +153,11 @@ async function start() {
   );
   await world.applyBlockTexture("Grass Block", "py", "/blocks/grass_top.png");
   await world.applyBlockTexture("Grass Block", "ny", "/blocks/dirt.png");
+  await world.applyBlockTexture("Brick", allFaces, "/blocks/brick.png");
+  await world.applyBlockTexture("Glass", allFaces, "/blocks/glass.png");
+  await world.applyBlockTexture("Wood", allFaces, "/blocks/wood.png");
+  await world.applyBlockTexture("Dark Stone", allFaces, "/blocks/dark_stone.png");
+  await world.applyBlockTexture("Cobblestone", allFaces, "/blocks/cobblestone.png");
 }
 
 start();
