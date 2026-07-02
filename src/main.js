@@ -560,6 +560,11 @@ document.body.appendChild(walletEl);
 function updateWallet() {
   walletEl.textContent = `💰 ${playerCoins}`;
   if (giveBtn) giveBtn.disabled = playerCoins <= 0;
+  if (giveAmountSel) {
+    Array.from(giveAmountSel.options).forEach(o => {
+      o.disabled = parseInt(o.value) > playerCoins;
+    });
+  }
 }
 
 // ── Dialog box ────────────────────────────────────────────────────────────────
@@ -569,7 +574,8 @@ const dialogEl    = document.getElementById("dialog");
 const dialogName  = document.getElementById("dialog-name");
 const dialogText  = document.getElementById("dialog-text");
 const dialogInput = document.getElementById("dialog-input");
-const giveBtn     = document.getElementById("give-coin-btn");
+const giveBtn        = document.getElementById("give-coin-btn");
+const giveAmountSel  = document.getElementById("give-coin-amount");
 
 function openDialog(npcId) {
   const npc = npcs.get(npcId); if (!npc) return;
@@ -612,16 +618,16 @@ dialogInput.addEventListener("keydown", (e) => {
 
 giveBtn.addEventListener("click", () => {
   if (!activeNpcDialog || playerCoins <= 0) return;
-  playerCoins--;
+  const amount = Math.min(parseInt(giveAmountSel.value) || 1, playerCoins);
+  playerCoins -= amount;
   updateWallet();
-  // Tell the server Thomas received a coin
   fetch(`${NPC_API}/npc-message`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       npc_id: activeNpcDialog,
       player_id: playerId,
       player_name: playerName,
-      message: `[GIVES YOU 1 COIN] (player now has ${playerCoins} coins remaining)`,
+      message: `[GIVES YOU ${amount} COIN${amount > 1 ? 'S' : ''}] (player now has ${playerCoins} coins remaining)`,
     }),
   }).catch(() => {});
   dialogText.textContent = "..."; dialogText.classList.add("thinking");
@@ -765,10 +771,11 @@ for (const key of weaponOrder) {
 const activeEffects = [];
 
 // ── Recoil state ──────────────────────────────────────────────────────────────
-let recoilPitch = 0;
+let recoilOffset = 0;    // current camera.rotation.x offset applied
+let recoilTarget = 0;   // target offset (kicks to negative on fire, returns to 0)
 
 function applyRecoil(amount) {
-  recoilPitch -= amount;
+  recoilTarget -= amount; // negative x = look up in Three.js
 }
 
 // ── Muzzle flash ──────────────────────────────────────────────────────────────
@@ -876,7 +883,7 @@ function equipWeapon(key) {
   gunGroups[currentWeaponKey].visible = false;
   currentWeaponKey = key;
   currentWeapon = WEAPONS[key];
-  gunGroups[key].visible = perspective.state === "pz"; // only in first-person
+  gunGroups[key].visible = perspective.state === "first";
   weaponNameEl.textContent = currentWeapon.name;
 
   // Bob animation
@@ -1038,11 +1045,15 @@ function animate() {
     if (playerUpdateTimer >= 500) { playerUpdateTimer = 0; reportPlayerPos(); }
 
     // Recoil decay
-    if (Math.abs(recoilPitch) > 0.00005) {
-      camera.rotation.x += recoilPitch;
-      recoilPitch *= 0.72;
-    } else {
-      recoilPitch = 0;
+    // Recoil: spring camera.rotation.x toward recoilTarget, then decay target back to 0
+    if (Math.abs(recoilTarget - recoilOffset) > 0.0001 || Math.abs(recoilOffset) > 0.0001) {
+      const prev = recoilOffset;
+      recoilOffset += (recoilTarget - recoilOffset) * 0.35; // spring toward target
+      recoilTarget *= 0.80;                                  // target decays to 0
+      camera.rotation.x += recoilOffset - prev;             // apply delta only
+      if (Math.abs(recoilTarget) < 0.0001 && Math.abs(recoilOffset) < 0.0001) {
+        recoilTarget = 0; recoilOffset = 0;
+      }
     }
 
     // Active effects (tracers, sparks)
@@ -1051,8 +1062,7 @@ function animate() {
     }
 
     // Gun visibility: only in first-person
-    const inFirstPerson = perspective.state === "pz";
-    gunGroups[currentWeaponKey].visible = inFirstPerson;
+    gunGroups[currentWeaponKey].visible = perspective.state === "first";
   }
 
   renderer.render(world, camera);

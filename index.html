@@ -22,7 +22,15 @@
         <div id="dialog-hint">Press Enter to send · Escape to close</div>
         <div id="dialog-actions">
           <input id="dialog-input" type="text" placeholder="Say something..." maxlength="200" autocomplete="off" />
-          <button id="give-coin-btn" title="Give 1 coin">💰 Give coin</button>
+          <div id="give-coin-wrap">
+            <select id="give-coin-amount">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+            </select>
+            <button id="give-coin-btn">💰 Give</button>
+          </div>
         </div>
       </div>
       <div id="crosshair">+</div>

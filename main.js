@@ -222,7 +222,7 @@ function createCharacter(skinName) {
 
   // Pass colours into the Character constructor options — these are applied
   // inside createModel() before any external paint, so they always take effect.
-  const DEPTH = 0.45; // slim front-to-back (default body width is 0.9)
+  const DEPTH = 0.25; // slim front-to-back (default body width is 0.9)
   const options = skin ? {
     head: { color: skin.skin, faceColor: skin.skin, depth: DEPTH },
     body: { color: skin.shirt, depth: DEPTH },
