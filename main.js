@@ -51,12 +51,22 @@ inputs.bind("f", rigidControls.toggleFly);
 
 const overlay = document.getElementById("overlay");
 overlay.addEventListener("click", () => {
-  rigidControls.lock();
-});
-rigidControls.on("lock", () => {
   overlay.classList.add("hidden");
+  canvas.requestPointerLock();
 });
-rigidControls.on("unlock", () => {
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement === canvas) {
+    rigidControls.isLocked = true;
+    overlay.classList.add("hidden");
+    console.log("pointer locked — WASD active");
+  } else {
+    rigidControls.isLocked = false;
+    overlay.classList.remove("hidden");
+    console.log("pointer unlocked");
+  }
+});
+document.addEventListener("pointerlockerror", () => {
+  console.error("pointer lock failed");
   overlay.classList.remove("hidden");
 });
 

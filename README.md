@@ -4,15 +4,29 @@ A multiplayer voxel game built with [Voxelize](https://voxelize.io) — Rust bac
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs) (1.7+) — install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- [Node.js](https://nodejs.org) (18+)
-- [protoc](https://grpc.io/docs/protoc-installation/) — `brew install protobuf`
-- [cargo-watch](https://crates.io/crates/cargo-watch) (optional, for hot reload) — `cargo install cargo-watch`
+### Rust (all platforms)
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Node.js 18+
+- **macOS:** `brew install node`
+- **Linux (Ubuntu/Debian):** `sudo apt install nodejs npm`
+- **Linux (Arch):** `sudo pacman -S nodejs npm`
+
+### protoc
+- **macOS:** `brew install protobuf`
+- **Linux (Ubuntu/Debian):** `sudo apt install protobuf-compiler`
+- **Linux (Arch):** `sudo pacman -S protobuf`
+
+### cargo-watch (optional, for hot reload)
+```sh
+cargo install cargo-watch
+```
 
 ## Setup
 
 ```sh
-# Install frontend dependencies
 npm install --legacy-peer-deps
 ```
 
