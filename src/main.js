@@ -8,6 +8,9 @@ import {
   addItem, refreshHotbar, getSlot, setFocusedSlot, getFocusedSlot,
   spawnGroundItem, groundItems, ITEM_DEFS,
 } from "./inventory.js";
+import {
+  playPistolShot, playShotgunShot, playEmptyClick, playReload, playDistantShot,
+} from "./audio.js";
 
 // ── Renderer & Camera ─────────────────────────────────────────────────────────
 
@@ -282,7 +285,11 @@ controls.attachCharacter(mainCharacter);
 class GamePeers extends VOXELIZE.Peers {
   constructor(object) { super(object); }
   createPeer = () => makeCharacter("player");
-  onPeerUpdate = (peer, data, { username } = {}) => { peer.set(data.position, data.direction); if (username && peer.username !== username) peer.username = username; };
+  onPeerUpdate = (peer, rawData, { username } = {}) => {
+    const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    peer.set(data.position, data.direction);
+    if (username && peer.username !== username) peer.username = username;
+  };
   packInfo = () => {
     const q = new THREE.Quaternion();
     const p = new THREE.Vector3();
@@ -547,7 +554,7 @@ function showSpeechBubble(npc, text) {
 function updateBubblePosition(npc) {
   const { speechBubble, pos } = npc;
   if (speechBubble.classList.contains("hidden")) return;
-  const wp = new THREE.Vector3(pos.x, pos.y + 2.2, pos.z).project(camera);
+  const wp = new THREE.Vector3(pos.x, pos.y + 0.5, pos.z).project(camera);
   if (wp.z > 1) { speechBubble.style.display = "none"; return; }
   speechBubble.style.display = "";
   speechBubble.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + "px";
@@ -569,10 +576,24 @@ function npcAttachItemMesh(npc, itemId) {
   const def = ITEM_DEFS[itemId];
   if (!def?.makeMesh) return;
   const mesh = def.makeMesh();
-  mesh.scale.setScalar(0.45);
-  mesh.position.set(0.05, -0.15, -0.1);
-  npc.character.rightArmGroup?.add(mesh);
-  npc.heldItemMesh = mesh;
+  mesh.scale.setScalar(0.55);
+
+  const armGroup = npc.character.rightArmGroup;
+  if (armGroup) {
+    // Arm group pivot is at the shoulder. Arm hangs down along -Y.
+    // Put gun at the hand end (bottom of arm, ~-armHeight) and forward a bit.
+    const armH = (npc.character.options?.arms?.height ?? 0.55 * 0.9);
+    mesh.position.set(0, -armH - 0.05, -0.1);
+    mesh.rotation.set(0, 0, 0); // gun barrel already faces -Z = forward
+    armGroup.add(mesh);
+    npc.heldItemMesh = mesh;
+  } else {
+    // Fallback: attach at right-hand world offset from character root
+    mesh.position.set(0.3, 0.7, -0.2);
+    mesh.rotation.set(0, 0, 0);
+    npc.character.add(mesh);
+    npc.heldItemMesh = mesh;
+  }
 }
 
 function npcPickUpItem(npc) {
@@ -614,49 +635,126 @@ function npcHolster(npc) {
   // Item stays in heldItem.data — just hidden visually
 }
 
+function getTargetPos(targetPlayerId) {
+  if (!targetPlayerId || targetPlayerId === playerId)
+    return controls.object.position.clone();
+  for (const [pid, peer] of (peers?.peerMap ?? new Map()))
+    if (pid === targetPlayerId) return peer.position?.clone() ?? null;
+  return controls.object.position.clone();
+}
+
 function npcShootAt(npc, targetPlayerId) {
   if (!npc.heldItem) return;
-  const id = npc.heldItem.id;
-  if (id !== "pistol" && id !== "shotgun") return;
+  const weaponId = npc.heldItem.id;
+  if (weaponId !== "pistol" && weaponId !== "shotgun") return;
   if ((npc.heldItem.data?.ammo ?? 0) <= 0) {
     showSpeechBubble(npc, "*click* out of ammo");
     return;
   }
-  npc.heldItem.data.ammo--;
+  if (npc.shootSeqRunning) return;
+  npc.shootSeqRunning = true;
 
-  // Origin = NPC eye
-  const origin = npc.pos.clone();
-  origin.y += NPC_EYE_Y * 0.85;
+  const isShotgun = weaponId === "shotgun";
+  const aimMs     = isShotgun ? 650 : 400;
+  const recoverMs = 280;
+  const gunMesh   = npc.heldItemMesh;
+  const armGroup  = npc.character.rightArmGroup;
+  const TARGET_ARM_X = -Math.PI * 0.38;
 
-  // Find target position
-  let targetPos = null;
-  if (targetPlayerId === playerId) {
-    targetPos = controls.object.position.clone();
-  } else {
-    for (const [pid, peer] of (peers?.peerMap ?? new Map())) {
-      if (pid === targetPlayerId) { targetPos = peer.position?.clone(); break; }
+  npc.mode = "idle";
+
+  // ── 1. Aim: raise arm ──────────────────────────────────────────────────────
+  const aimStart = performance.now();
+  function stepAim() {
+    const t = Math.min((performance.now() - aimStart) / aimMs, 1);
+    const e = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+    if (armGroup) armGroup.rotation.x = TARGET_ARM_X * e;
+    if (gunMesh)  gunMesh.rotation.x  = -0.25 * e;
+    if (t < 1) requestAnimationFrame(stepAim);
+    else fireBullet();
+  }
+
+  // ── 2. Fire ────────────────────────────────────────────────────────────────
+  function fireBullet() {
+    npc.heldItem.data.ammo--;
+    const origin = npc.pos.clone();
+    origin.y += NPC_EYE_Y * 0.85;
+    const targetPos = getTargetPos(targetPlayerId);
+
+    // Muzzle flash
+    if (gunMesh) {
+      const flash = new THREE.Mesh(
+        new THREE.SphereGeometry(isShotgun ? 0.09 : 0.06, 4, 4),
+        new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 1,
+          blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      flash.position.z = isShotgun ? -0.55 : -0.38;
+      gunMesh.add(flash);
+      setTimeout(() => gunMesh?.remove(flash), 65);
     }
-  }
-  if (!targetPos) {
-    // Default: shoot toward nearest player
-    targetPos = controls.object.position.clone();
+
+    // Arm kick back then recover
+    if (armGroup) armGroup.rotation.x -= isShotgun ? 0.45 : 0.22;
+    const kickStart = performance.now();
+    const kickAmt = isShotgun ? 0.45 : 0.22;
+    function stepKick() {
+      const t = Math.min((performance.now() - kickStart) / 160, 1);
+      if (armGroup) armGroup.rotation.x = (TARGET_ARM_X - kickAmt) + kickAmt * t;
+      if (t < 1) requestAnimationFrame(stepKick);
+    }
+    stepKick();
+
+    // Tracers
+    if (targetPos) {
+      const dir     = targetPos.clone().sub(origin).normalize();
+      const pellets = isShotgun ? 6 : 1;
+      const spread  = isShotgun ? 0.08 : 0;
+      for (let i = 0; i < pellets; i++) {
+        const d = dir.clone().add(new THREE.Vector3(
+          (Math.random()-0.5)*spread,
+          (Math.random()-0.5)*spread,
+          (Math.random()-0.5)*spread
+        )).normalize();
+        spawnTracer(origin.clone(), origin.clone().addScaledVector(d, 40),
+          isShotgun ? 0xff7700 : 0xff3300);
+      }
+      spawnHitSparks(targetPos.toArray(), [0, 1, 0]);
+
+      const dist = origin.distanceTo(targetPos);
+      if (dist < 35 && (!targetPlayerId || targetPlayerId === playerId)) {
+        const damage = isShotgun ? 15 : 22;
+        localHp = Math.max(0, localHp - damage);
+        updateHpBar?.(); flashDamage?.();
+        if (typeof recoilTarget !== "undefined")
+          recoilTarget -= isShotgun ? 0.03 : 0.015;
+        if (localHp <= 0) triggerDeath?.();
+      }
+    }
+    setTimeout(lowerArm, 200);
   }
 
-  const dir = targetPos.clone().sub(origin).normalize();
-  const endPt = origin.clone().addScaledVector(dir, 40);
-
-  spawnTracer(origin.clone(), endPt, 0xff3300);
-  spawnHitSparks(targetPos.toArray(), [0, 1, 0]);
-
-  // Apply damage if close enough
-  const dist = origin.distanceTo(targetPos);
-  if (dist < 35 && targetPlayerId === playerId) {
-    const damage = id === "shotgun" ? 12 : 22;
-    localHp = Math.max(0, localHp - damage);
-    updateHpBar?.();
-    flashDamage?.();
-    if (localHp <= 0) triggerDeath?.();
+  // ── 3. Lower arm ───────────────────────────────────────────────────────────
+  function lowerArm() {
+    const lowerStart = performance.now();
+    const startX = armGroup?.rotation.x ?? 0;
+    function stepLower() {
+      const t = Math.min((performance.now() - lowerStart) / recoverMs, 1);
+      if (armGroup) armGroup.rotation.x = startX * (1 - t);
+      if (gunMesh)  gunMesh.rotation.x  = gunMesh.rotation.x * (1 - t);
+      if (t < 1) {
+        requestAnimationFrame(stepLower);
+      } else {
+        if (armGroup) armGroup.rotation.x = 0;
+        if (gunMesh)  gunMesh.rotation.x  = 0;
+        npc.shootSeqRunning = false;
+        npc.mode = "wandering";
+      }
+    }
+    stepLower();
   }
+
+  requestAnimationFrame(stepAim);
+
 }
 
 function sendNpcContext(npc) {
@@ -676,6 +774,7 @@ function sendNpcContext(npc) {
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 5);
 
+  if (nearby.length > 0) console.log(`[npc-context] ${npc.id} sees:`, nearby);
   fetch(`${NPC_API}/npc-context`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -684,7 +783,7 @@ function sendNpcContext(npc) {
       nearby_items: nearby,
       held_item: npc.heldItem?.id ?? null,
     }),
-  }).catch(() => {});
+  }).catch(e => console.error("[npc-context] fetch failed:", e));
 }
 
 function connectNpcEvents() {
@@ -722,12 +821,17 @@ function connectNpcEvents() {
       npcHolster(npc);
     }
 
-    // Handle speech
+    // Handle speech — face nearest player when speaking
     if (data.speech) {
       showSpeechBubble(npc, data.speech); npc.lastSpeech = data.speech;
       if (activeNpcDialog === data.npc_id) {
         dialogText.textContent = data.speech; dialogText.classList.remove("thinking");
       }
+      const pp = controls.position;
+      const fdx = pp.x - npc.pos.x, fdz = pp.z - npc.pos.z;
+      const flen = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+      npc.character.set([npc.pos.x, npc.pos.y, npc.pos.z], [fdx / flen, 0, fdz / flen]);
+      npc.character.update();
     }
   };
   es.onerror = () => setTimeout(connectNpcEvents, 3000);
@@ -848,7 +952,8 @@ inputs.bind("KeyE", () => {
 inputs.bind("KeyQ", () => {
   const dir = new THREE.Vector3();
   controls.object.getWorldDirection(dir);
-  tryDrop(world, controls.position, dir);
+  const eyePos = controls.object.getWorldPosition(new THREE.Vector3());
+  tryDrop(world, eyePos, dir);
   syncWeaponToSlot(getFocusedSlot());
 }, "in-game");
 
@@ -857,6 +962,159 @@ function checkDialogDistance() {
   const npc = npcs.get(activeNpcDialog); if (!npc) { closeDialog(); return; }
   const pp = controls.position;
   if (Math.sqrt((npc.pos.x-pp.x)**2 + (npc.pos.z-pp.z)**2) > 6) closeDialog();
+}
+
+// ── Proximity voice chat (OpenAI Realtime via server proxy) ──────────────────
+const VOICE_RANGE = 4; // units — triggers when this close to an NPC
+
+let voiceNpcId = null;
+let voiceWs = null;          // WebSocket to our Rust proxy
+let voiceMicStream = null;   // MediaStream from getUserMedia
+let voiceProcessor = null;   // ScriptProcessorNode doing PCM capture
+let voiceAudioCtx = null;
+let voiceOutCtx = null;      // separate AudioContext for playback
+let voiceOutQueue = [];      // pending PCM16 chunks to play
+let voicePlaying = false;
+
+// Listening indicator — small mic dot near crosshair
+const voiceIndicator = document.createElement("div");
+voiceIndicator.id = "voice-indicator";
+Object.assign(voiceIndicator.style, {
+  position: "fixed", top: "50%", left: "50%",
+  transform: "translate(24px, 20px)",
+  width: "10px", height: "10px", borderRadius: "50%",
+  background: "#ff4444", boxShadow: "0 0 6px #ff4444",
+  pointerEvents: "none", zIndex: "30", display: "none",
+});
+document.body.appendChild(voiceIndicator);
+
+function _wsProto() {
+  return window.location.protocol === "https:" ? "wss" : "ws";
+}
+
+async function startVoice(npcId) {
+  if (voiceNpcId === npcId && voiceWs) return;
+  stopVoice();
+  voiceNpcId = npcId;
+
+  // Get mic access
+  try {
+    voiceMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    voiceNpcId = null;
+    return; // mic denied — fail silently
+  }
+
+  // Connect to our proxy — it forwards to OpenAI Realtime
+  const wsUrl = `${_wsProto()}://${_host}:4001/npc-voice?npc_id=${encodeURIComponent(npcId)}&player_name=${encodeURIComponent(playerName)}`;
+  voiceWs = new WebSocket(wsUrl);
+  voiceWs.binaryType = "arraybuffer";
+
+  voiceWs.onopen = () => {
+    voiceIndicator.style.display = "block";
+    _startMicCapture();
+  };
+
+  voiceWs.onmessage = (e) => {
+    if (typeof e.data === "string") {
+      _handleRealtimeEvent(JSON.parse(e.data));
+    }
+  };
+
+  voiceWs.onclose = () => { stopVoice(); };
+  voiceWs.onerror = () => { stopVoice(); };
+}
+
+function _handleRealtimeEvent(ev) {
+  if (ev.type === "response.audio.delta" && ev.delta) {
+    // base64-encoded PCM16 audio chunk — queue it for playback
+    const raw = atob(ev.delta);
+    const buf = new Int16Array(raw.length / 2);
+    for (let i = 0; i < buf.length; i++) {
+      buf[i] = (raw.charCodeAt(i * 2)) | (raw.charCodeAt(i * 2 + 1) << 8);
+    }
+    voiceOutQueue.push(buf);
+    if (!voicePlaying) _drainAudioQueue();
+  }
+  if (ev.type === "response.audio_transcript.delta" && ev.delta) {
+    // Show NPC transcript in speech bubble as it arrives
+    const npc = npcs.get(voiceNpcId);
+    if (npc) {
+      const current = npc.lastSpeech || "";
+      const updated = current + ev.delta;
+      npc.lastSpeech = updated;
+      showSpeechBubble(npc, updated);
+    }
+  }
+  if (ev.type === "response.audio_transcript.done" && ev.transcript) {
+    // Final transcript — also queue to NPC memory via existing message system
+    fetch(`${NPC_API}/npc-message`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ npc_id: voiceNpcId, player_id: playerId, player_name: "[VOICE_RESPONSE]", message: ev.transcript }),
+    }).catch(() => {});
+  }
+}
+
+function _drainAudioQueue() {
+  if (voiceOutQueue.length === 0) { voicePlaying = false; return; }
+  voicePlaying = true;
+  if (!voiceOutCtx) voiceOutCtx = new AudioContext({ sampleRate: 24000 });
+
+  const chunk = voiceOutQueue.shift();
+  const floats = new Float32Array(chunk.length);
+  for (let i = 0; i < chunk.length; i++) floats[i] = chunk[i] / 32768;
+
+  const buf = voiceOutCtx.createBuffer(1, floats.length, 24000);
+  buf.copyToChannel(floats, 0);
+  const src = voiceOutCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(voiceOutCtx.destination);
+  src.onended = _drainAudioQueue;
+  src.start();
+}
+
+function _startMicCapture() {
+  voiceAudioCtx = new AudioContext({ sampleRate: 24000 });
+  const source = voiceAudioCtx.createMediaStreamSource(voiceMicStream);
+  // ScriptProcessor captures raw PCM — deprecated but universally supported
+  voiceProcessor = voiceAudioCtx.createScriptProcessor(4096, 1, 1);
+  voiceProcessor.onaudioprocess = (e) => {
+    if (!voiceWs || voiceWs.readyState !== WebSocket.OPEN) return;
+    const floats = e.inputBuffer.getChannelData(0);
+    const pcm = new Int16Array(floats.length);
+    for (let i = 0; i < floats.length; i++) {
+      pcm[i] = Math.max(-32768, Math.min(32767, floats[i] * 32768));
+    }
+    voiceWs.send(pcm.buffer);
+  };
+  source.connect(voiceProcessor);
+  voiceProcessor.connect(voiceAudioCtx.destination);
+}
+
+function stopVoice() {
+  voiceNpcId = null;
+  voiceIndicator.style.display = "none";
+  voiceOutQueue = [];
+  voicePlaying = false;
+  if (voiceProcessor) { voiceProcessor.disconnect(); voiceProcessor = null; }
+  if (voiceAudioCtx) { voiceAudioCtx.close(); voiceAudioCtx = null; }
+  if (voiceOutCtx) { voiceOutCtx.close(); voiceOutCtx = null; }
+  if (voiceMicStream) { voiceMicStream.getTracks().forEach(t => t.stop()); voiceMicStream = null; }
+  if (voiceWs) { voiceWs.close(); voiceWs = null; }
+}
+
+function checkVoiceProximity() {
+  const pp = controls.position;
+  let closestId = null, closestDist = Infinity;
+  for (const [id, npc] of npcs) {
+    const d = Math.sqrt((npc.pos.x - pp.x) ** 2 + (npc.pos.z - pp.z) ** 2);
+    if (d < VOICE_RANGE && d < closestDist) { closestId = id; closestDist = d; }
+  }
+  if (closestId && closestId !== voiceNpcId) {
+    startVoice(closestId);
+  } else if (!closestId && voiceNpcId) {
+    stopVoice();
+  }
 }
 
 // ── Debug panel ───────────────────────────────────────────────────────────────
@@ -1005,6 +1263,14 @@ events.on("player-respawned", (raw) => {
   if (d.player_id === peers.ownID) return;
   const entry = peerHp.get(d.player_id);
   if (entry) { entry.hp = d.hp; entry.maxHp = d.max_hp; updatePeerHpBarDOM(entry); }
+});
+
+// Hear other players shoot
+events.on("player-shot", (raw) => {
+  const d = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (d.shooter_id === peers.ownID) return; // don't double-play our own shot
+  const listenerPos = controls.object.position.toArray();
+  playDistantShot(listenerPos, d.position, d.weapon);
 });
 
 // Clean up HP bar when a peer disconnects
@@ -1511,6 +1777,7 @@ function startReload() {
   }
   isReloading = true;
   updateAmmoHUD();
+  playReload();
 
   // Animate gun down during reload then back up
   const mesh = gunGroups[currentWeaponKey];
@@ -1551,7 +1818,7 @@ function fireWeapon() {
     if (s && s.id === currentWeaponKey && s.data.ammo > 0) { ammoSlot = s; break; }
   }
   if (!ammoSlot) {
-    // Auto-reload on empty
+    playEmptyClick();
     startReload();
     return;
   }
@@ -1560,6 +1827,18 @@ function fireWeapon() {
   ammoSlot.data.ammo -= 1;
   refreshHotbar();
   updateAmmoHUD();
+
+  // Play shot sound
+  if (currentWeaponKey === "shotgun") playShotgunShot();
+  else playPistolShot();
+
+  // Broadcast shot position so other clients can hear it
+  const _shotPos = controls.object.position;
+  events.emit("player-shot", {
+    shooter_id: peers.ownID,
+    position: [_shotPos.x, _shotPos.y, _shotPos.z],
+    weapon: currentWeaponKey,
+  });
 
   playFireAnimation(currentWeaponKey);
   spawnMuzzleFlash();
@@ -1817,8 +2096,32 @@ function animate() {
     for (const npc of npcs.values()) {
       updateNpcMovement(npc);
       updateBubblePosition(npc);
+      // Auto-pickup: if NPC walks within 1.5 blocks of a ground item and has no held item, pick it up
+      if (!npc.heldItem) {
+        for (let i = groundItems.length - 1; i >= 0; i--) {
+          const item = groundItems[i];
+          if (!item.settled) continue;
+          const dx = item.mesh.position.x - npc.pos.x;
+          const dz = item.mesh.position.z - npc.pos.z;
+          if (Math.sqrt(dx*dx + dz*dz) < 1.5) {
+            world.remove(item.mesh);
+            groundItems.splice(i, 1);
+            npc.heldItem = { id: item.id, data: { ...(item.mesh.userData?.itemData ?? {}) } };
+            npcAttachItemMesh(npc, item.id);
+            showSpeechBubble(npc, `*picks up ${item.id.replace(/_/g,' ')}*`);
+            // Tell server NPC now holds this item
+            if (NPC_LLM_ENABLED) fetch(`${NPC_API}/npc-message`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ npc_id: npc.id, player_id: 'system', player_name: 'system',
+                message: `[SYSTEM] You just picked up a ${item.id.replace(/_/g,' ')}. It is now in your hands.` }),
+            }).catch(() => {});
+            break;
+          }
+        }
+      }
     }
     checkDialogDistance();
+    checkVoiceProximity();
 
     playerUpdateTimer += 16;
     if (playerUpdateTimer >= 500) { playerUpdateTimer = 0; reportPlayerPos(); }

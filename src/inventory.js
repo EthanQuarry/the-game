@@ -127,10 +127,9 @@ export function removeSlot(i) {
 
 export const groundItems = [];
 
-const _up = new THREE.Vector3(0, 1, 0);
-const _gravity = -0.016;
-
-export function spawnGroundItem(id, data, position, tossDir = null) {
+// Spawn a ground item. If dropAnim is true, plays a throw arc from `position`
+// (which should be camera/hand position) to a target ground point.
+export function spawnGroundItem(id, data, position, dropAnim = false) {
   const def = ITEM_DEFS[id];
   if (!def) return;
 
@@ -141,23 +140,20 @@ export function spawnGroundItem(id, data, position, tossDir = null) {
 
   const innerMesh = def.makeMesh();
   innerMesh.scale.setScalar(0.9);
-  // Lift slightly so grip clears ground surface — no rotation needed, gun is already horizontal
   innerMesh.position.y = 0.12;
   root.add(innerMesh);
 
-  root.position.copy(position); // caller places y directly on the surface
+  root.position.copy(position);
+  root.scale.setScalar(dropAnim ? 0.01 : 1); // start tiny if animating in
 
   const entry = {
     mesh: root,
     innerMesh,
     id,
     data: root.userData.itemData,
-    spinOffset: Math.random() * Math.PI * 2,
     pickupAnim: null,
-    settled: !tossDir,
-    tossVel: tossDir
-      ? new THREE.Vector3(tossDir.x * 0.18, 0.22, tossDir.z * 0.18)
-      : new THREE.Vector3(),
+    dropAnim: dropAnim ? { startTime: null, startPos: position.clone(), duration: 0.4 } : null,
+    settled: !dropAnim,
     groundY: position.y,
   };
 
@@ -277,20 +273,32 @@ export function updateInventory(scene, playerPosition, dt) {
     const entry = groundItems[i];
     const { mesh, innerMesh } = entry;
 
-    // ── Toss physics ──────────────────────────────────────────────────────
-    if (!entry.settled) {
-      entry.tossVel.y += _gravity;
-      mesh.position.add(entry.tossVel);
-      // Query real ground height so item lands on the actual surface
-      const floorY = (scene.getMaxHeightAt
-        ? (scene.getMaxHeightAt(mesh.position.x, mesh.position.z) ?? entry.groundY)
-        : entry.groundY);
-      if (mesh.position.y <= floorY) {
-        mesh.position.y = floorY;
-        entry.groundY = floorY;
-        entry.tossVel.set(0, 0, 0);
+    // ── Drop arc animation ────────────────────────────────────────────────
+    if (entry.dropAnim) {
+      if (entry.dropAnim.startTime === null) entry.dropAnim.startTime = _time;
+      const t = Math.min(1, (_time - entry.dropAnim.startTime) / entry.dropAnim.duration);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // ease-in-out quad
+      // Lerp X/Z straight to target
+      mesh.position.x = entry.dropAnim.startPos.x + (entry.dropAnim.targetPos.x - entry.dropAnim.startPos.x) * ease;
+      mesh.position.z = entry.dropAnim.startPos.z + (entry.dropAnim.targetPos.z - entry.dropAnim.startPos.z) * ease;
+      // Arc Y: parabola peaking halfway
+      const arcHeight = 0.8;
+      const baseY = entry.dropAnim.startPos.y + (entry.dropAnim.targetPos.y - entry.dropAnim.startPos.y) * ease;
+      mesh.position.y = baseY + arcHeight * Math.sin(t * Math.PI);
+      // Scale in from tiny
+      mesh.scale.setScalar(0.1 + 0.9 * ease);
+      // Spin during flight
+      innerMesh.rotation.y = t * Math.PI * 3;
+
+      if (t >= 1) {
+        const target = entry.dropAnim.targetPos;
+        entry.dropAnim = null;
         entry.settled = true;
+        mesh.position.set(target.x, entry.groundY, target.z);
+        mesh.scale.setScalar(1);
+        innerMesh.rotation.y = 0;
       }
+      continue; // skip pickup detection while animating
     }
 
     // ── Pickup animation ──────────────────────────────────────────────────
@@ -306,7 +314,7 @@ export function updateInventory(scene, playerPosition, dt) {
         continue;
       }
     } else if (entry.settled) {
-      mesh.position.y = entry.groundY; // pinned to ground, no movement
+      mesh.position.y = entry.groundY; // pinned to ground
     }
 
     // ── Nearest item detection ────────────────────────────────────────────
@@ -375,15 +383,27 @@ export function tryDrop(scene, playerPosition, dropDir) {
   const item = slots[focusedSlot];
   if (!item) return;
 
-  const groundPos = playerPosition.clone();
-  // Resolve actual floor y so the item lands on the surface, not inside it
+  // Target spot: 1.5 blocks in front, on the ground
+  const targetPos = playerPosition.clone();
+  targetPos.x += dropDir.x * 1.5;
+  targetPos.z += dropDir.z * 1.5;
   const floorY = scene.getMaxHeightAt
-    ? (scene.getMaxHeightAt(groundPos.x, groundPos.z) ?? (groundPos.y - 1))
-    : (groundPos.y - 1);
-  groundPos.y = floorY + 0.5; // start slightly above floor so toss arc works
+    ? (scene.getMaxHeightAt(targetPos.x, targetPos.z) ?? Math.floor(playerPosition.y - 1))
+    : Math.floor(playerPosition.y - 1);
+  targetPos.y = floorY;
 
-  const mesh = spawnGroundItem(item.id, { ...item.data }, groundPos, dropDir);
-  if (mesh) scene.add(mesh);
+  const mesh = spawnGroundItem(item.id, { ...item.data }, targetPos, true);
+  if (!mesh) return;
+
+  // Arc starts at eye/hand position
+  mesh.position.copy(playerPosition);
+
+  const entry = groundItems[groundItems.length - 1];
+  entry.dropAnim.startPos = playerPosition.clone();
+  entry.dropAnim.targetPos = targetPos.clone();
+  entry.groundY = floorY;
+
+  scene.add(mesh);
 
   removeSlot(focusedSlot);
   refreshHotbar();

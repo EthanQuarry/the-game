@@ -17,3 +17,6 @@ hex = "0.4"
 chrono = "0.4"
 async-stream = "0.3"
 dotenvy = "0.15"
+actix-ws = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
