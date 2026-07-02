@@ -58,20 +58,200 @@ perspective.connect(inputs, "in-game");
 const shadows    = new VOXELIZE.Shadows(world);
 const lightShined = new VOXELIZE.LightShined(world);
 
-function makeCharacter() {
-  const c = new VOXELIZE.Character();
+// ── Character skins ───────────────────────────────────────────────────────────
+
+const S = 0.9; // CHARACTER_SCALE
+
+// Slim proportions: narrower body/depth, taller legs, same arms
+const SLIM_BODY = {
+  width: 0.52 * S,
+  depth: 0.28 * S,
+  widthSegments: 16,
+  heightSegments: 16,
+};
+const SLIM_ARMS = {
+  width:  0.2  * S,
+  height: 0.55 * S,
+  depth:  0.2  * S,
+  widthSegments: 8,
+  heightSegments: 16,
+  depthSegments: 8,
+  shoulderGap:  0.03 * S,
+  shoulderDrop: 0.22 * S,
+};
+const SLIM_LEGS = {
+  width:  0.22 * S,
+  height: 0.34 * S,
+  depth:  0.22 * S,
+  widthSegments: 6,
+  heightSegments: 6,
+  depthSegments: 6,
+  betweenLegsGap: 0.12 * S,
+};
+
+const SKINS = {
+  player: {
+    opts: {
+      head: { color: "#f5cba7", faceColor: "#f5cba7" },
+      body: { ...SLIM_BODY, color: "#1565c0" },
+      arms: { ...SLIM_ARMS, color: "#1565c0" },
+      legs: { ...SLIM_LEGS, color: "#455a64" },
+    },
+    paint(c) {
+      // Face detail
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#f5cba7"; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#3d2b1f"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.22)); // hair
+        ctx.fillStyle = "#1a3a5c";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.32), Math.floor(w*0.2), Math.floor(h*0.22)); // left eye
+        ctx.fillRect(Math.floor(w*0.6), Math.floor(h*0.32), Math.floor(w*0.2), Math.floor(h*0.22)); // right eye
+        ctx.fillStyle = "#c06060";
+        ctx.fillRect(Math.floor(w*0.3), Math.floor(h*0.72), Math.floor(w*0.4), Math.floor(h*0.12)); // mouth
+      });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#3d2b1f"; ctx.fillRect(0,0,cv.width,cv.height); });
+      // Shirt stripe detail on body front
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#1565c0"; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#0d47a1";
+        ctx.fillRect(Math.floor(w*0.45), 0, 2, h); // button line
+        ctx.fillStyle = "#f5cba7";
+        ctx.fillRect(Math.floor(w*0.35), 0, Math.floor(w*0.3), Math.floor(h*0.18)); // collar skin
+      });
+    },
+  },
+  thomas: {
+    opts: {
+      head: { color: "#c8956c", faceColor: "#c8956c" },
+      body: { ...SLIM_BODY, color: "#3a3a3a" },
+      arms: { ...SLIM_ARMS, color: "#3a3a3a" },
+      legs: { ...SLIM_LEGS, color: "#1a237e" },
+    },
+    paint(c) {
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#c8956c"; ctx.fillRect(0, 0, w, h);
+        // Dark hair top
+        ctx.fillStyle = "#2c1a0e"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.25));
+        // Stubble on lower face
+        ctx.fillStyle = "#8b5e3c";
+        ctx.fillRect(Math.floor(w*0.15), Math.floor(h*0.68), Math.floor(w*0.7), Math.floor(h*0.2));
+        // Eyes
+        ctx.fillStyle = "#1a1a2e";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.32), Math.floor(w*0.18), Math.floor(h*0.2));
+        ctx.fillRect(Math.floor(w*0.62), Math.floor(h*0.32), Math.floor(w*0.18), Math.floor(h*0.2));
+      });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#2c1a0e"; ctx.fillRect(0,0,cv.width,cv.height); });
+      // Hoodie front — dark grey with kangaroo pocket
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#3a3a3a"; ctx.fillRect(0, 0, w, h);
+        // Pocket rectangle lower half
+        ctx.fillStyle = "#2a2a2a";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.55), Math.floor(w*0.6), Math.floor(h*0.38));
+        // Hood collar at top
+        ctx.fillStyle = "#c8956c";
+        ctx.fillRect(Math.floor(w*0.38), 0, Math.floor(w*0.24), Math.floor(h*0.2));
+        // Zipper line
+        ctx.fillStyle = "#555";
+        ctx.fillRect(Math.floor(w*0.48), Math.floor(h*0.18), 1, Math.floor(h*0.37));
+      });
+      // Orange YC logo on back
+      c.body.paint("back", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#3a3a3a"; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#ff6600";
+        // "YC" pixel block
+        ctx.fillRect(Math.floor(w*0.3), Math.floor(h*0.25), Math.floor(w*0.4), Math.floor(h*0.45));
+        ctx.fillStyle = "#3a3a3a";
+        ctx.fillRect(Math.floor(w*0.38), Math.floor(h*0.32), Math.floor(w*0.24), Math.floor(h*0.18)); // cut-out
+      });
+      // Arm cuffs
+      c.leftArm.paint("all",  (ctx, cv) => { ctx.fillStyle = "#3a3a3a"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.rightArm.paint("all", (ctx, cv) => { ctx.fillStyle = "#3a3a3a"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.leftArm.paint("bottom",  (ctx, cv) => { ctx.fillStyle = "#c8956c"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.rightArm.paint("bottom", (ctx, cv) => { ctx.fillStyle = "#c8956c"; ctx.fillRect(0,0,cv.width,cv.height); });
+      // Jeans with knee highlight
+      c.leftLeg.paint("all",  (ctx, cv) => { ctx.fillStyle = "#1a237e"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.rightLeg.paint("all", (ctx, cv) => { ctx.fillStyle = "#1a237e"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.leftLeg.paint("bottom",  (ctx, cv) => { ctx.fillStyle = "#111"; ctx.fillRect(0,0,cv.width,cv.height); }); // shoe
+      c.rightLeg.paint("bottom", (ctx, cv) => { ctx.fillStyle = "#111"; ctx.fillRect(0,0,cv.width,cv.height); });
+    },
+  },
+  homeless: {
+    opts: {
+      head: { color: "#8d5524", faceColor: "#8d5524" },
+      body: { ...SLIM_BODY, color: "#6d4c41" },
+      arms: { ...SLIM_ARMS, color: "#6d4c41" },
+      legs: { ...SLIM_LEGS, color: "#546e7a" },
+    },
+    paint(c) {
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#8d5524"; ctx.fillRect(0, 0, w, h);
+        // Messy dark hair
+        ctx.fillStyle = "#2c1810"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.3));
+        ctx.fillRect(0, 0, Math.ceil(w*0.12), Math.ceil(h*0.5)); // side hair
+        ctx.fillRect(w - Math.ceil(w*0.12), 0, Math.ceil(w*0.12), Math.ceil(h*0.5));
+        // Tired eyes
+        ctx.fillStyle = "#2c1810";
+        ctx.fillRect(Math.floor(w*0.18), Math.floor(h*0.33), Math.floor(w*0.2), Math.floor(h*0.18));
+        ctx.fillRect(Math.floor(w*0.62), Math.floor(h*0.33), Math.floor(w*0.2), Math.floor(h*0.18));
+        // Beard scruff
+        ctx.fillStyle = "#5c3317";
+        ctx.fillRect(Math.floor(w*0.1), Math.floor(h*0.6), Math.floor(w*0.8), Math.floor(h*0.28));
+      });
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#6d4c41"; ctx.fillRect(0, 0, w, h);
+        // Worn jacket wrinkle lines
+        ctx.fillStyle = "#4e342e";
+        ctx.fillRect(Math.floor(w*0.45), Math.floor(h*0.1), 1, Math.floor(h*0.8));
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.4), Math.floor(w*0.25), 1);
+        ctx.fillRect(Math.floor(w*0.55), Math.floor(h*0.55), Math.floor(w*0.25), 1);
+      });
+    },
+  },
+};
+
+function paintSkin(c, skin) {
+  if (skin && skin.paint) {
+    skin.paint(c);
+    // Force texture uploads
+    [c.head, c.body, c.leftArm, c.rightArm, c.leftLeg, c.rightLeg].forEach(part => {
+      part.traverse(o => {
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+            m.needsUpdate = true;
+            if (m.map) m.map.needsUpdate = true;
+          });
+        }
+      });
+    });
+  }
+}
+
+// Characters queued for skin painting after world.initialize()
+const skinQueue = [];
+
+function makeCharacter(skinName) {
+  const skin = SKINS[skinName];
+  const opts = skin ? skin.opts : {};
+  const c = new VOXELIZE.Character(opts);
   world.add(c);
   lightShined.add(c);
   shadows.add(c);
+  if (skin) skinQueue.push({ c, skin });
   return c;
 }
 
-const mainCharacter = makeCharacter();
+const mainCharacter = makeCharacter("player");
 controls.attachCharacter(mainCharacter);
 
 class GamePeers extends VOXELIZE.Peers {
   constructor(object) { super(object); }
-  createPeer = () => makeCharacter();
+  createPeer = () => makeCharacter("player");
   onPeerUpdate = (peer, data) => peer.set(data.position, data.direction);
   packInfo = () => {
     const q = new THREE.Quaternion();
@@ -129,8 +309,8 @@ function astar(sx, sz, gx, gz) {
       const nx = curr.x + dx, nz = curr.z + dz, nk = key(nx, nz);
       if (closed.has(nk)) continue;
       if (Math.abs(nx - sx) + Math.abs(nz - sz) > MAX) continue;
-      // Blocked if any solid block exists at ground level or above in this column
-      const blocked = !world.isInitialized || world.getMaxHeightAt(nx, nz) > 12;
+      // Blocked if a building/wall exists above the road/ground layer (roads top at y=13)
+      const blocked = !world.isInitialized || world.getMaxHeightAt(nx, nz) > 13;
       if (blocked) continue;
       const tg = (gScore.get(ck) ?? Infinity) + 1;
       if (tg < (gScore.get(nk) ?? Infinity)) {
@@ -143,17 +323,17 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [12, 14.5, 12],
-  market:  [20, 14.5, 4],
-  well:    [28, 14.5, 12],
-  shelter: [4,  14.5, 20],
-  road:    [8,  14.5, 8],
+  tent:    [13, 15.3, 10],
+  market:  [20, 15.3, 4],
+  well:    [28, 15.3, 12],
+  shelter: [4,  15.3, 20],
+  road:    [8,  15.3, 8],
 };
 
 const npcs = new Map();
 
-function createNpc(id, name, spawnPos) {
-  const character = makeCharacter();
+function createNpc(id, name, spawnPos, skinName) {
+  const character = makeCharacter(skinName || "homeless");
   character.username = name;
   character.set(spawnPos, [0, 0, 1]);
   character.update();
@@ -166,34 +346,137 @@ function createNpc(id, name, spawnPos) {
   npcs.set(id, {
     character, id, name,
     pos: new THREE.Vector3(...spawnPos),
-    path: [], pathIndex: 0,
+    // movement mode: 'idle' | 'wandering' | 'following' | 'retreating'
+    mode: 'idle',
+    target: null,
+    wanderTimer: 0,
     speechBubble: bubble, bubbleTimeout: null, lastSpeech: null,
-    actionType: "patrol",
   });
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas", [12, 14.5, 12]);
+createNpc("thomas", "Thomas",  [13,  15.3, 10],  "thomas");
+createNpc("marcus", "Marcus",  [-8,  15.3, 20],  "marcus");
+createNpc("diane",  "Diane",   [20,  15.3, -6],  "diane");
+createNpc("ray",    "Ray",     [-8,  15.3, -6],  "ray");
+
+// NPC waypoint tables (used by SSE handler for move_to_waypoint)
+const NPC_WAYPOINTS = {
+  thomas: {
+    tent:    [13, 15.3, 10],  market: [20, 15.3, 4],
+    well:    [28, 15.3, 12], shelter: [4,  15.3, 20],
+    road:    [8,  15.3, 8],
+  },
+  marcus: {
+    stairwell: [-8, 15.3, 20], corner: [-4, 15.3, 8], road: [8, 15.3, 8],
+  },
+  diane: {
+    bodega: [20, 15.3, -6], doorway: [22, 15.3, -10], road: [8, 15.3, 8],
+  },
+  ray: {
+    shop: [-8, 15.3, -6], doorway: [-6, 15.3, -10], alley: [-4, 15.3, -14],
+  },
+};
+
+// Home positions for auto-retreat (each NPC retreats to their base)
+const NPC_HOME = {
+  thomas: { x: 13, z: 10 },
+  marcus: { x: -8, z: 20 },
+  diane:  { x: 20, z: -6 },
+  ray:    { x: -8, z: -6 },
+};
 
 const NPC_SPEED = 0.025;
+const TENT_POS = { x: 13, z: 10 };
+const TENT_WANDER_RADIUS = 12;  // wanders within this many blocks of tent
+const FOLLOW_STOP_DIST   = 3;   // stops this many blocks from player
+const RETREAT_DIST       = 28;  // auto-retreats if further than this from tent
+
+function distTo(a, bx, bz) {
+  return Math.sqrt((a.x - bx) ** 2 + (a.z - bz) ** 2);
+}
 
 function updateNpcMovement(npc) {
-  const { character, path, pos } = npc;
-  if (path.length > 0 && npc.pathIndex < path.length) {
-    const [wx, wz] = path[npc.pathIndex];
-    const dx = wx - pos.x, dz = wz - pos.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist < 0.15) {
-      npc.pathIndex++;
+  const { character, pos } = npc;
+  const pp = controls.position;
+
+  // During dialog — stay still and keep facing the player
+  if (activeNpcDialog === npc.id) {
+    const fdx = pp.x - pos.x, fdz = pp.z - pos.z;
+    const flen = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+    character.set([pos.x, pos.y, pos.z], [fdx / flen, 0, fdz / flen]);
+    character.update();
+    return;
+  }
+
+  // ── Auto-retreat if too far from home ───────────────────────────────────
+  const home = NPC_HOME[npc.id] || TENT_POS;
+  if (npc.mode !== 'retreating') {
+    if (distTo(pos, home.x, home.z) > RETREAT_DIST) {
+      npc.mode = 'retreating';
+      npc.target = { x: home.x, z: home.z };
+    }
+  }
+
+  // ── Compute movement based on mode ──────────────────────────────────────
+  let tx = null, tz = null;
+
+  if (npc.mode === 'following') {
+    const playerDist = distTo(pos, pp.x, pp.z);
+    if (playerDist > FOLLOW_STOP_DIST) {
+      // Walk toward player but stop FOLLOW_STOP_DIST away
+      const angle = Math.atan2(pos.z - pp.z, pos.x - pp.x);
+      tx = pp.x + Math.cos(angle) * FOLLOW_STOP_DIST;
+      tz = pp.z + Math.sin(angle) * FOLLOW_STOP_DIST;
     } else {
-      const step = Math.min(NPC_SPEED, dist);
-      pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; pos.y = 14.5;
+      // Close enough — face the player
+      const fdx = pp.x - pos.x, fdz = pp.z - pos.z;
+      const flen = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+      character.set([pos.x, pos.y, pos.z], [fdx / flen, 0, fdz / flen]);
+      character.update();
+      return;
+    }
+    // If too far from home, switch to retreating
+    if (distTo(pos, home.x, home.z) > RETREAT_DIST) {
+      npc.mode = 'retreating';
+      npc.target = { x: home.x, z: home.z };
+    }
+
+  } else if (npc.mode === 'retreating') {
+    if (npc.target) { tx = npc.target.x; tz = npc.target.z; }
+    // Arrived
+    if (npc.target && distTo(pos, npc.target.x, npc.target.z) < 2) {
+      npc.mode = 'idle';
+      npc.target = null;
+    }
+
+  } else {
+    // idle — stand still indefinitely until LLM or dialog sets a new mode
+  }
+
+  // ── Walk toward target ───────────────────────────────────────────────────
+  if (tx !== null) {
+    const dx = tx - pos.x, dz = tz - pos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < 0.3) {
+      // Reached target — go idle briefly
+      if (npc.mode !== 'following') {
+        npc.target = null;
+        if (npc.mode === 'wandering') npc.wanderTimer = 60 + Math.floor(Math.random() * 120);
+      }
+      character.set([pos.x, pos.y, pos.z], [0, 0, 1]);
+    } else {
+      const speed = npc.mode === 'following' ? NPC_SPEED * 1.4 : NPC_SPEED;
+      const step = Math.min(speed, dist);
+      pos.x += (dx / dist) * step;
+      pos.z += (dz / dist) * step;
+      pos.y = 15.3;
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {
-    // Idle — face forward, wait for LLM to give next movement
     character.set([pos.x, pos.y, pos.z], [0, 0, 1]);
   }
+
   character.update();
 }
 
@@ -226,10 +509,25 @@ function connectNpcEvents() {
     const npc = npcs.get(data.npc_id);
     if (!npc) return;
     npc.actionType = data.action_type;
-    if (data.action_type === "move_to_waypoint" && data.waypoint) {
-      const wp = THOMAS_WAYPOINTS[data.waypoint];
-      if (wp) { const p = astar(npc.pos.x, npc.pos.z, wp[0], wp[2]); if (p.length) { npc.path = p; npc.pathIndex = 0; } }
-    } else if (data.action_type === "speak" && data.speech) {
+
+    // LLM sets movement mode — no teleporting, movement runs each frame
+    const home = NPC_HOME[npc.id] || TENT_POS;
+    if (data.action_type === "move_toward") {
+      npc.mode = 'following';
+    } else if (data.action_type === "move_away") {
+      npc.mode = 'retreating';
+      npc.target = { x: home.x, z: home.z };
+    } else if (data.action_type === "move_to_waypoint" && data.waypoint) {
+      const wpTable = NPC_WAYPOINTS[npc.id] || {};
+      const wp = wpTable[data.waypoint];
+      if (wp) { npc.mode = 'retreating'; npc.target = { x: wp[0], z: wp[2] }; }
+      else { npc.mode = 'retreating'; npc.target = { x: home.x, z: home.z }; }
+    } else if (data.action_type === "idle") {
+      npc.mode = 'idle';
+    }
+
+    // Handle speech (can accompany any action)
+    if (data.speech) {
       showSpeechBubble(npc, data.speech); npc.lastSpeech = data.speech;
       if (activeNpcDialog === data.npc_id) {
         dialogText.textContent = data.speech; dialogText.classList.remove("thinking");
@@ -250,6 +548,20 @@ window.addEventListener("beforeunload", () => {
   if (NPC_LLM_ENABLED) fetch(`${NPC_API}/player-leave`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: playerId }) }).catch(() => {});
 });
 
+// ── Player wallet ─────────────────────────────────────────────────────────────
+
+let playerCoins = 10; // start with 10 coins
+
+const walletEl = document.createElement("div");
+walletEl.id = "wallet";
+walletEl.textContent = `💰 ${playerCoins}`;
+document.body.appendChild(walletEl);
+
+function updateWallet() {
+  walletEl.textContent = `💰 ${playerCoins}`;
+  if (giveBtn) giveBtn.disabled = playerCoins <= 0;
+}
+
 // ── Dialog box ────────────────────────────────────────────────────────────────
 
 let activeNpcDialog = null;
@@ -257,10 +569,19 @@ const dialogEl    = document.getElementById("dialog");
 const dialogName  = document.getElementById("dialog-name");
 const dialogText  = document.getElementById("dialog-text");
 const dialogInput = document.getElementById("dialog-input");
+const giveBtn     = document.getElementById("give-coin-btn");
 
 function openDialog(npcId) {
   const npc = npcs.get(npcId); if (!npc) return;
   activeNpcDialog = npcId;
+
+  // Face the player immediately
+  const pp = controls.position;
+  const dx = pp.x - npc.pos.x, dz = pp.z - npc.pos.z;
+  const len = Math.sqrt(dx * dx + dz * dz) || 1;
+  npc.character.set([npc.pos.x, npc.pos.y, npc.pos.z], [dx / len, 0, dz / len]);
+  npc.character.update();
+
   dialogName.textContent = npc.name;
   dialogText.textContent = npc.lastSpeech || "...";
   dialogText.classList.remove("thinking");
@@ -289,6 +610,23 @@ dialogInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeDialog();
 });
 
+giveBtn.addEventListener("click", () => {
+  if (!activeNpcDialog || playerCoins <= 0) return;
+  playerCoins--;
+  updateWallet();
+  // Tell the server Thomas received a coin
+  fetch(`${NPC_API}/npc-message`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      npc_id: activeNpcDialog,
+      player_id: playerId,
+      player_name: playerName,
+      message: `[GIVES YOU 1 COIN] (player now has ${playerCoins} coins remaining)`,
+    }),
+  }).catch(() => {});
+  dialogText.textContent = "..."; dialogText.classList.add("thinking");
+});
+
 inputs.bind("KeyE", () => {
   if (activeNpcDialog) { closeDialog(); return; }
   const pp = controls.position; let nearest = null, nearestDist = Infinity;
@@ -314,14 +652,324 @@ debug.registerDisplay("Chunks loaded",   () => world.chunks?.loaded?.size   ?? "
 debug.registerDisplay("Chunks requested",() => world.chunks?.requested?.size ?? "?");
 debug.registerDisplay("Render radius",   world, "renderRadius");
 
+// ── Gun system ────────────────────────────────────────────────────────────────
+
+const WEAPONS = {
+  pistol: {
+    name: "Pistol",
+    range: 64, spread: 0, pellets: 1,
+    fireRate: 350, recoil: 0.012,
+    tracerColor: 0xffee88,
+  },
+  shotgun: {
+    name: "Shotgun",
+    range: 24, spread: 0.09, pellets: 6,
+    fireRate: 900, recoil: 0.038,
+    tracerColor: 0xff8844,
+  },
+};
+const weaponOrder = ["pistol", "shotgun"];
+let currentWeaponKey = "pistol";
+let currentWeapon = WEAPONS.pistol;
+let lastFireTime = 0;
+
+// ── HUD refs ─────────────────────────────────────────────────────────────────
+const crosshairEl  = document.getElementById("crosshair");
+const weaponNameEl = document.getElementById("weapon-name");
+const weaponHudEl  = document.getElementById("weapon-hud");
+
+function showGunHUD(show) {
+  crosshairEl.style.display  = show ? "block" : "none";
+  weaponHudEl.style.display  = show ? "block" : "none";
+}
+
+// ── View-model gun meshes ─────────────────────────────────────────────────────
+
+function makeMat(color) {
+  return new THREE.MeshBasicMaterial({ color });
+}
+
+function makeGunMesh(key) {
+  const g = new THREE.Group();
+
+  if (key === "pistol") {
+    // Body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.11, 0.18), makeMat(0x333333));
+    body.position.set(0, 0, 0);
+    g.add(body);
+    // Barrel
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.22), makeMat(0x222222));
+    barrel.position.set(0, 0.04, -0.18);
+    g.add(barrel);
+    // Grip
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.13, 0.07), makeMat(0x1a1a1a));
+    grip.position.set(0, -0.12, 0.04);
+    grip.rotation.x = 0.2;
+    g.add(grip);
+    // Trigger guard
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.08), makeMat(0x111111));
+    guard.position.set(0, -0.04, -0.02);
+    g.add(guard);
+  } else {
+    // Shotgun — longer, blockier
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.40), makeMat(0x5c3d1e));
+    body.position.set(0, 0, -0.08);
+    g.add(body);
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.36), makeMat(0x2a2a2a));
+    barrel.position.set(0, 0.06, -0.18);
+    g.add(barrel);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.18), makeMat(0x3e2009));
+    stock.position.set(0, -0.02, 0.20);
+    stock.rotation.x = -0.1;
+    g.add(stock);
+    const pump = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.14), makeMat(0x1a1a1a));
+    pump.position.set(0, 0.03, 0.04);
+    g.add(pump);
+  }
+
+  // Muzzle point at barrel tip
+  const muzzle = new THREE.Object3D();
+  muzzle.name = "muzzle";
+  muzzle.position.set(0, key === "pistol" ? 0.04 : 0.06, key === "pistol" ? -0.30 : -0.38);
+  g.add(muzzle);
+
+  return g;
+}
+
+const gunGroups = {};
+const muzzleFlashes = {};
+
+for (const key of weaponOrder) {
+  const mesh = makeGunMesh(key);
+  // Position in camera space: right, down, forward
+  mesh.position.set(0.26, -0.22, -0.42);
+  mesh.visible = key === currentWeaponKey;
+  camera.add(mesh);
+  gunGroups[key] = mesh;
+
+  // Muzzle flash sprite (no texture — just an additive glowing sprite)
+  const flashMat = new THREE.SpriteMaterial({
+    color: 0xffcc44, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const flash = new THREE.Sprite(flashMat);
+  flash.scale.set(0.35, 0.35, 1);
+  flash.visible = false;
+  const muzzlePt = mesh.getObjectByName("muzzle");
+  muzzlePt.add(flash);
+  muzzleFlashes[key] = flash;
+}
+
+// ── Active effects ────────────────────────────────────────────────────────────
+// Each entry: { update(dt) → bool (false = remove) }
+const activeEffects = [];
+
+// ── Recoil state ──────────────────────────────────────────────────────────────
+let recoilPitch = 0;
+
+function applyRecoil(amount) {
+  recoilPitch -= amount;
+}
+
+// ── Muzzle flash ──────────────────────────────────────────────────────────────
+function spawnMuzzleFlash() {
+  const flash = muzzleFlashes[currentWeaponKey];
+  flash.visible = true;
+  flash.material.rotation = Math.random() * Math.PI * 2;
+  flash.material.opacity = 1;
+  setTimeout(() => { flash.visible = false; }, 60);
+}
+
+// ── Bullet tracer ─────────────────────────────────────────────────────────────
+function spawnTracer(from, to, color) {
+  const mat = new THREE.LineBasicMaterial({
+    color, transparent: true, opacity: 0.75,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+  const line = new THREE.Line(geo, mat);
+  world.add(line);
+
+  let age = 0;
+  activeEffects.push({
+    update(dt) {
+      age += dt;
+      mat.opacity = Math.max(0, 0.75 * (1 - age / 120));
+      if (age >= 120) {
+        world.remove(line);
+        geo.dispose();
+        mat.dispose();
+        return false;
+      }
+      return true;
+    },
+  });
+}
+
+// ── Hit sparks ────────────────────────────────────────────────────────────────
+function spawnHitSparks(point, normal) {
+  const COUNT = 14;
+  const positions = new Float32Array(COUNT * 3);
+  const velocities = [];
+
+  const nx = normal ? normal[0] : 0;
+  const ny = normal ? normal[1] : 1;
+  const nz = normal ? normal[2] : 0;
+
+  for (let i = 0; i < COUNT; i++) {
+    positions[i*3]   = point[0];
+    positions[i*3+1] = point[1];
+    positions[i*3+2] = point[2];
+    velocities.push(new THREE.Vector3(
+      nx * 0.05 + (Math.random()-0.5) * 0.18,
+      ny * 0.05 + Math.random() * 0.14,
+      nz * 0.05 + (Math.random()-0.5) * 0.18,
+    ));
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  geo.setAttribute("position", posAttr);
+
+  const mat = new THREE.PointsMaterial({
+    size: 0.07, color: 0xffdd44,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+    transparent: true, opacity: 1,
+  });
+  const sparks = new THREE.Points(geo, mat);
+  world.add(sparks);
+
+  let age = 0;
+  const LIFETIME = 350;
+  activeEffects.push({
+    update(dt) {
+      age += dt;
+      for (let i = 0; i < COUNT; i++) {
+        const v = velocities[i];
+        positions[i*3]   += v.x * dt * 0.1;
+        positions[i*3+1] += v.y * dt * 0.1;
+        positions[i*3+2] += v.z * dt * 0.1;
+        v.y -= 0.0015 * dt; // gravity
+      }
+      posAttr.needsUpdate = true;
+      mat.opacity = Math.max(0, 1 - age / LIFETIME);
+      if (age >= LIFETIME) {
+        world.remove(sparks);
+        geo.dispose();
+        mat.dispose();
+        return false;
+      }
+      return true;
+    },
+  });
+}
+
+// ── Crosshair fire flash ──────────────────────────────────────────────────────
+function flashCrosshair() {
+  crosshairEl.classList.add("firing");
+  setTimeout(() => crosshairEl.classList.remove("firing"), 80);
+}
+
+// ── Weapon switch ─────────────────────────────────────────────────────────────
+function equipWeapon(key) {
+  if (!WEAPONS[key] || key === currentWeaponKey) return;
+  gunGroups[currentWeaponKey].visible = false;
+  currentWeaponKey = key;
+  currentWeapon = WEAPONS[key];
+  gunGroups[key].visible = perspective.state === "pz"; // only in first-person
+  weaponNameEl.textContent = currentWeapon.name;
+
+  // Bob animation
+  const mesh = gunGroups[key];
+  const origY = mesh.position.y;
+  mesh.position.y = origY - 0.12;
+  setTimeout(() => { mesh.position.y = origY; }, 80);
+}
+
+function cycleWeapon(dir) {
+  const idx = weaponOrder.indexOf(currentWeaponKey);
+  const next = weaponOrder[(idx + dir + weaponOrder.length) % weaponOrder.length];
+  equipWeapon(next);
+}
+
+// ── Fire ─────────────────────────────────────────────────────────────────────
+function fireRay(dir) {
+  const origin = new THREE.Vector3();
+  controls.object.getWorldPosition(origin);
+
+  const hit = world.raycastVoxels(
+    origin.toArray(), dir.toArray(),
+    currentWeapon.range,
+    { ignoreFluids: true, ignorePassables: true }
+  );
+
+  const endPt = hit
+    ? new THREE.Vector3(...hit.point)
+    : origin.clone().addScaledVector(dir, currentWeapon.range);
+
+  spawnTracer(origin.clone(), endPt, currentWeapon.tracerColor);
+
+  if (hit) {
+    spawnHitSparks(hit.point, hit.normal);
+    const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(hit.voxel);
+    world.updateVoxel(vox[0], vox[1], vox[2], 0);
+  }
+}
+
+function fireWeapon() {
+  const now = performance.now();
+  if (now - lastFireTime < currentWeapon.fireRate) return;
+  lastFireTime = now;
+
+  spawnMuzzleFlash();
+  applyRecoil(currentWeapon.recoil);
+  flashCrosshair();
+
+  const base = new THREE.Vector3();
+  controls.object.getWorldDirection(base);
+
+  if (currentWeapon.pellets === 1) {
+    fireRay(base);
+  } else {
+    for (let i = 0; i < currentWeapon.pellets; i++) {
+      const s = currentWeapon.spread;
+      fireRay(base.clone().add(new THREE.Vector3(
+        (Math.random()-0.5)*s,
+        (Math.random()-0.5)*s,
+        (Math.random()-0.5)*s,
+      )).normalize());
+    }
+  }
+}
+
+inputs.click("left", () => {
+  if (!controls.isLocked || activeNpcDialog) return;
+  fireWeapon();
+}, "in-game");
+
+inputs.scroll(
+  () => cycleWeapon(-1),
+  () => cycleWeapon(1),
+  "in-game"
+);
+
+inputs.bind("Digit1", () => equipWeapon("pistol"),  "in-game");
+inputs.bind("Digit2", () => equipWeapon("shotgun"), "in-game");
+
 // ── Key bindings ──────────────────────────────────────────────────────────────
 
 inputs.bind("KeyG", controls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", controls.toggleFly,       "in-game");
 inputs.bind("KeyJ", debug.toggle,             "*");
 
-controls.on("lock",   () => inputs.setNamespace("in-game"));
-controls.on("unlock", () => inputs.setNamespace("menu"));
+controls.on("lock", () => {
+  inputs.setNamespace("in-game");
+  showGunHUD(true);
+});
+controls.on("unlock", () => {
+  inputs.setNamespace("menu");
+  showGunHUD(false);
+});
 
 // ── Overlay & pointer lock ────────────────────────────────────────────────────
 
@@ -388,6 +1036,23 @@ function animate() {
 
     playerUpdateTimer += 16;
     if (playerUpdateTimer >= 500) { playerUpdateTimer = 0; reportPlayerPos(); }
+
+    // Recoil decay
+    if (Math.abs(recoilPitch) > 0.00005) {
+      camera.rotation.x += recoilPitch;
+      recoilPitch *= 0.72;
+    } else {
+      recoilPitch = 0;
+    }
+
+    // Active effects (tracers, sparks)
+    for (let i = activeEffects.length - 1; i >= 0; i--) {
+      if (!activeEffects[i].update(16)) activeEffects.splice(i, 1);
+    }
+
+    // Gun visibility: only in first-person
+    const inFirstPerson = perspective.state === "pz";
+    gunGroups[currentWeaponKey].visible = inFirstPerson;
   }
 
   renderer.render(world, camera);
@@ -408,6 +1073,10 @@ async function start() {
   await network.connect("http://localhost:4000");
   await network.join("tutorial");
   await world.initialize();
+
+  // Paint skins now that WebGL context is active and materials compiled
+  for (const { c, skin } of skinQueue) paintSkin(c, skin);
+  skinQueue.length = 0;
 
   world.renderRadius = 8;
 

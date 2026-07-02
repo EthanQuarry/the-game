@@ -54,21 +54,211 @@ perspectives.connect(inputs, "in-game");
 const shadows = new VOXELIZE.Shadows(world);
 const lightShined = new VOXELIZE.LightShined(world);
 
-function createCharacter() {
-  const character = new VOXELIZE.Character();
+// ── Character skins ───────────────────────────────────────────────────────────
+
+// Helper: fill a rectangle on a canvas context
+function px(ctx, x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+}
+
+// Skin painter — takes a character and a skin definition
+function applySkin(character, skin) {
+  const { head, body, leftArm, rightArm, leftLeg, rightLeg } = character;
+
+  // Verify paint is working — force needsUpdate on all materials after painting
+  const forceUpdate = (part) => {
+    part.traverse(obj => {
+      if (obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach(m => {
+          m.needsUpdate = true;
+          if (m.map) m.map.needsUpdate = true;
+        });
+      }
+    });
+  };
+
+  // ── Head ─────────────────────────────────────────────────────────────────
+  head.paint("all", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.skin);
+  });
+  head.paint("front", (ctx, canvas) => {
+    const w = canvas.width, h = canvas.height;
+    // Skin tone face
+    px(ctx, 0, 0, w, h, skin.skin);
+    // Eyes
+    px(ctx, Math.floor(w * 0.25), Math.floor(h * 0.3), Math.floor(w * 0.18), Math.floor(h * 0.25), skin.eye);
+    px(ctx, Math.floor(w * 0.57), Math.floor(h * 0.3), Math.floor(w * 0.18), Math.floor(h * 0.25), skin.eye);
+    // Mouth
+    px(ctx, Math.floor(w * 0.3), Math.floor(h * 0.7), Math.floor(w * 0.4), Math.floor(h * 0.15), skin.mouth);
+    // Hair (top strip)
+    px(ctx, 0, 0, w, Math.floor(h * 0.2), skin.hair);
+  });
+  head.paint("top", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.hair);
+  });
+
+  // ── Body ──────────────────────────────────────────────────────────────────
+  // front/back canvas: 16w × widthSegments (but no heightSegments set = same)
+  body.paint("all", (ctx, canvas) => {
+    const w = canvas.width, h = canvas.height;
+    // Base shirt/jacket colour
+    px(ctx, 0, 0, w, h, skin.shirt);
+    // Simple detail: collar area lighter at top
+    px(ctx, Math.floor(w * 0.35), 0, Math.floor(w * 0.3), Math.floor(h * 0.2), skin.skin);
+    // Pocket or logo if defined
+    if (skin.logo) {
+      px(ctx, Math.floor(w * 0.6), Math.floor(h * 0.3), Math.floor(w * 0.25), Math.floor(h * 0.25), skin.logo);
+    }
+  });
+  body.paint("front", (ctx, canvas) => {
+    const w = canvas.width, h = canvas.height;
+    px(ctx, 0, 0, w, h, skin.shirt);
+    // Collar
+    px(ctx, Math.floor(w * 0.35), 0, Math.floor(w * 0.3), Math.floor(h * 0.2), skin.skin);
+    // Button line
+    px(ctx, Math.floor(w * 0.48), Math.floor(h * 0.2), 1, Math.floor(h * 0.8), skin.shirtDark);
+  });
+
+  // ── Arms ──────────────────────────────────────────────────────────────────
+  // canvas: 8w × 16h
+  leftArm.paint("all", (ctx, canvas) => {
+    const w = canvas.width, h = canvas.height;
+    px(ctx, 0, 0, w, h, skin.shirt);
+    // Sleeve cuff at bottom
+    px(ctx, 0, Math.floor(h * 0.8), w, Math.floor(h * 0.2), skin.shirtDark);
+    // Hand at very bottom
+    px(ctx, 0, Math.floor(h * 0.88), w, Math.floor(h * 0.12), skin.skin);
+  });
+  rightArm.paint("all", (ctx, canvas) => {
+    const w = canvas.width, h = canvas.height;
+    px(ctx, 0, 0, w, h, skin.shirt);
+    px(ctx, 0, Math.floor(h * 0.8), w, Math.floor(h * 0.2), skin.shirtDark);
+    px(ctx, 0, Math.floor(h * 0.88), w, Math.floor(h * 0.12), skin.skin);
+  });
+
+  // ── Legs ──────────────────────────────────────────────────────────────────
+  // canvas: 3w × 3h (very small — just solid colours)
+  leftLeg.paint("all", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.pants);
+  });
+  leftLeg.paint("bottom", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.shoe);
+  });
+  rightLeg.paint("all", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.pants);
+  });
+  rightLeg.paint("bottom", (ctx, canvas) => {
+    px(ctx, 0, 0, canvas.width, canvas.height, skin.shoe);
+  });
+
+  // Force GPU texture upload on all parts
+  forceUpdate(head);
+  forceUpdate(body);
+  forceUpdate(leftArm);
+  forceUpdate(rightArm);
+  forceUpdate(leftLeg);
+  forceUpdate(rightLeg);
+}
+
+// Skin definitions — each is a colour palette
+const SKINS = {
+  // Thomas: YC founder type — warm skin, grey hoodie, dark jeans
+  thomas: {
+    skin:      "#c8956c",
+    hair:      "#2c1a0e",
+    eye:       "#1a1a2e",
+    mouth:     "#8b4513",
+    shirt:     "#4a4a4a",
+    shirtDark: "#2a2a2a",
+    pants:     "#1a237e",
+    shoe:      "#1a1a1a",
+    logo:      "#ff6600", // orange YC logo hint
+  },
+  // Player: light skin, blue shirt, grey jeans
+  player: {
+    skin:      "#fdbcb4",
+    hair:      "#3d2b1f",
+    eye:       "#1a3a5c",
+    mouth:     "#c0706a",
+    shirt:     "#1565c0",
+    shirtDark: "#0d47a1",
+    pants:     "#455a64",
+    shoe:      "#212121",
+    logo:      null,
+  },
+  // VC partner: pale skin, sharp black suit, white shirt
+  vc: {
+    skin:      "#ffe0c2",
+    hair:      "#1a1a1a",
+    eye:       "#0d0d0d",
+    mouth:     "#c06060",
+    shirt:     "#1a1a1a",
+    shirtDark: "#0a0a0a",
+    pants:     "#1a1a1a",
+    shoe:      "#0a0a0a",
+    logo:      "#ffffff", // white shirt visible under suit
+  },
+  // Homeless person: weathered darker skin, faded brown jacket, worn pants
+  homeless: {
+    skin:      "#8d5524",
+    hair:      "#2c1810",
+    eye:       "#2c1810",
+    mouth:     "#5c3317",
+    shirt:     "#6d4c41",
+    shirtDark: "#4e342e",
+    pants:     "#546e7a",
+    shoe:      "#3e2723",
+    logo:      null,
+  },
+};
+
+// Characters that need skin applied after world init
+const pendingSkins = [];
+
+function createCharacter(skinName) {
+  const skin = skinName && SKINS[skinName] ? SKINS[skinName] : null;
+
+  // Pass colours into the Character constructor options — these are applied
+  // inside createModel() before any external paint, so they always take effect.
+  const DEPTH = 0.45; // slim front-to-back (default body width is 0.9)
+  const options = skin ? {
+    head: { color: skin.skin, faceColor: skin.skin, depth: DEPTH },
+    body: { color: skin.shirt, depth: DEPTH },
+    arms: { color: skin.shirt, depth: DEPTH },
+    legs: { color: skin.pants, depth: DEPTH },
+  } : {
+    head: { depth: DEPTH },
+    body: { depth: DEPTH },
+    arms: { depth: DEPTH },
+    legs: { depth: DEPTH },
+  };
+
+  const character = new VOXELIZE.Character(options);
   world.add(character);
   lightShined.add(character);
   shadows.add(character);
+
+  if (skin) {
+    pendingSkins.push({ character, skin });
+  }
   return character;
 }
 
-const mainCharacter = createCharacter();
+function applyPendingSkins() {
+  for (const { character, skin } of pendingSkins) {
+    applySkin(character, skin);
+  }
+  pendingSkins.length = 0;
+}
+
+const mainCharacter = createCharacter("player");
 rigidControls.attachCharacter(mainCharacter);
 
-// NPC
-const npc = createCharacter();
-npc.username = "Villager";
-npc.bodyColor = "#4a7c59";
+// NPC — Thomas, YC founder personality
+const npc = createCharacter("thomas");
+npc.username = "Thomas";
 
 // Thomas patrols in front of the YC office plaza (chunk -2,0 south face ~x=-26, z=-4)
 const NPC_SPAWN = new THREE.Vector3(-26, 0, -4);
@@ -209,6 +399,9 @@ async function start() {
 
   await world.initialize();
   world.renderRadius = 32;
+
+  // Apply character skins now that WebGL is up and materials have been compiled
+  applyPendingSkins();
 
   // Float in place until chunk [0,0] is ready, then land on the road
   rigidControls.toggleGhostMode();

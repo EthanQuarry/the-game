@@ -25,6 +25,13 @@ html, body { height: 100%; overflow: hidden; }
 
 /* ── FPS ──────────────────────────────────────────────────────────────────── */
 
+#wallet {
+  position: fixed; bottom: 16px; right: 16px;
+  color: #ffd700; font-family: monospace; font-size: 1rem; font-weight: bold;
+  background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 4px;
+  pointer-events: none; z-index: 20;
+}
+
 #fps {
   position: fixed; top: 10px; right: 10px;
   color: #fff; font-family: monospace; font-size: 0.85rem;
@@ -73,6 +80,19 @@ html, body { height: 100%; overflow: hidden; }
 #dialog-text { font-size: 0.9rem; min-height: 2.2em; margin-bottom: 10px; line-height: 1.4; color: #ddd; }
 #dialog-text.thinking { color: #888; font-style: italic; }
 #dialog-hint { font-size: 0.7rem; color: #555; margin-bottom: 6px; }
+#dialog-actions {
+  display: flex; gap: 6px;
+}
+
+#give-coin-btn {
+  flex-shrink: 0;
+  background: rgba(255,215,0,0.15); border: 1px solid rgba(255,215,0,0.4);
+  border-radius: 5px; color: #ffd700; font-size: 0.8rem; padding: 6px 10px;
+  cursor: pointer; white-space: nowrap;
+}
+#give-coin-btn:hover { background: rgba(255,215,0,0.3); }
+#give-coin-btn:disabled { opacity: 0.4; cursor: default; }
+
 #dialog-input {
   width: 100%;
   background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
@@ -80,3 +100,36 @@ html, body { height: 100%; overflow: hidden; }
 }
 #dialog-input:focus { border-color: rgba(142,207,255,0.5); }
 #dialog-input::placeholder { color: #555; }
+
+/* ── Crosshair ────────────────────────────────────────────────────────────── */
+
+#crosshair {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255,255,255,0.85);
+  font-size: 20px; font-family: monospace; font-weight: bold;
+  pointer-events: none; user-select: none;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+  z-index: 50;
+  transition: font-size 60ms ease-out, color 60ms ease-out;
+  display: none; /* shown only when pointer locked */
+}
+#crosshair.firing {
+  font-size: 28px;
+  color: rgba(255,220,100,0.95);
+}
+
+/* ── Weapon HUD ───────────────────────────────────────────────────────────── */
+
+#weapon-hud {
+  position: fixed; bottom: 50px; right: 16px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px; padding: 6px 14px;
+  pointer-events: none; z-index: 20;
+  display: none; /* shown only when pointer locked */
+}
+#weapon-name {
+  color: #e0e0e0; font-family: monospace; font-size: 0.9rem;
+  letter-spacing: 0.05em;
+}
