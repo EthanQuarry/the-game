@@ -3,6 +3,35 @@ import * as THREE from "three";
 
 import "./style.css";
 
+function typeText(element, text, speed = 60) {
+  element.textContent = "";
+
+  let i = 0;
+
+  function tick() {
+    element.textContent += text[i];
+    i++;
+
+    if (i < text.length) {
+      setTimeout(tick, speed);
+    }
+  }
+
+  tick();
+}
+
+const titleText = document.getElementById("title-text");
+const subtitleText = document.getElementById("subtitle-text");
+const playButton = document.getElementById("play-button");
+
+typeText(titleText, "Retro-deck", 60);
+setTimeout(() => {
+  typeText(subtitleText, "A San-Francisco adventure", 30);
+}, 500)
+setTimeout(() => {
+  typeText(playButton, "Click to play", 30);
+}, 1000)
+
 const canvas = document.getElementById("canvas");
 
 const world = new VOXELIZE.World({
