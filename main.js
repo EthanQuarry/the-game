@@ -65,6 +65,27 @@ function createCharacter() {
 const mainCharacter = createCharacter();
 rigidControls.attachCharacter(mainCharacter);
 
+// NPC that walks in a circle on the road
+const npc = createCharacter();
+npc.username = "Villager";
+
+const NPC_SPAWN = { x: 8, y: 13, z: 8 };
+const NPC_RADIUS = 6;
+const NPC_SPEED = 0.012;
+let npcAngle = 0;
+let npcReady = false;
+
+function updateNPC() {
+  if (!npcReady || !world.isInitialized) return;
+  npcAngle += NPC_SPEED;
+  const tx = NPC_SPAWN.x + Math.cos(npcAngle) * NPC_RADIUS;
+  const tz = NPC_SPAWN.z + Math.sin(npcAngle) * NPC_RADIUS;
+  const dx = Math.cos(npcAngle + 0.01);
+  const dz = Math.sin(npcAngle + 0.01);
+  npc.set([tx, NPC_SPAWN.y, tz], [dx, 0, dz]);
+  npc.update();
+}
+
 inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
 
@@ -145,6 +166,7 @@ function animate() {
     perspectives.update();
     lightShined.update();
     shadows.update();
+    updateNPC();
   }
 
   renderer.render(world, camera);
@@ -172,6 +194,7 @@ async function start() {
   world.addChunkInitListener([0, 0], () => {
     rigidControls.teleportToTop(8, 8);
     if (rigidControls.ghostMode) rigidControls.toggleGhostMode();
+    npcReady = true;
   });
 
   world.sky.setShadingPhases([
