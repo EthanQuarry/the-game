@@ -100,8 +100,9 @@ async function start() {
 
   await world.initialize();
 
+  // Spawn just outside the castle's south gateway
   world.addChunkInitListener([0, 0], () => {
-    rigidControls.teleportToTop(0, 0);
+    rigidControls.teleportToTop(0, -12);
   });
 
   world.sky.setShadingPhases([

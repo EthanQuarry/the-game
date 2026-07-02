@@ -1,183 +1,285 @@
 use voxelize::{
-    Block, Chunk, ChunkStage, FlatlandStage, Registry, Resources, Server, Space, Vec2,
+    Block, Chunk, ChunkStage, FlatlandStage, Registry, Resources, Server, Space,
     VoxelAccess, Voxelize, World, WorldConfig,
 };
 
-// ─── Building stage ───────────────────────────────────────────────────────────
-// Generates a castle tower at voxel origin only in chunk [0, 0].
+// ── helpers ───────────────────────────────────────────────────────────────────
 
-struct BuildingStage;
-
-impl BuildingStage {
-    fn set_rect(
-        chunk: &mut Chunk,
-        x0: i32,
-        z0: i32,
-        x1: i32,
-        z1: i32,
-        y: i32,
-        id: u32,
-    ) {
-        for vx in x0..=x1 {
-            for vz in z0..=z1 {
-                chunk.set_voxel(vx, y, vz, id);
-            }
-        }
-    }
-
-    fn set_walls(
-        chunk: &mut Chunk,
-        x0: i32,
-        z0: i32,
-        x1: i32,
-        z1: i32,
-        y: i32,
-        id: u32,
-    ) {
-        for vx in x0..=x1 {
-            chunk.set_voxel(vx, y, z0, id);
-            chunk.set_voxel(vx, y, z1, id);
-        }
-        for vz in z0..=z1 {
-            chunk.set_voxel(x0, y, vz, id);
-            chunk.set_voxel(x1, y, vz, id);
-        }
-    }
-
-    fn set_col(chunk: &mut Chunk, vx: i32, vz: i32, y0: i32, y1: i32, id: u32) {
+fn fill(chunk: &mut Chunk, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, id: u32) {
+    for vx in x0..=x1 {
         for vy in y0..=y1 {
-            chunk.set_voxel(vx, vy, vz, id);
+            for vz in z0..=z1 {
+                chunk.set_voxel(vx, vy, vz, id);
+            }
         }
     }
 }
 
-impl ChunkStage for BuildingStage {
-    fn name(&self) -> String {
-        "Building".to_owned()
+fn walls(chunk: &mut Chunk, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, id: u32) {
+    for vy in y0..=y1 {
+        for vx in x0..=x1 {
+            chunk.set_voxel(vx, vy, z0, id);
+            chunk.set_voxel(vx, vy, z1, id);
+        }
+        for vz in z0..=z1 {
+            chunk.set_voxel(x0, vy, vz, id);
+            chunk.set_voxel(x1, vy, vz, id);
+        }
+    }
+}
+
+fn col(chunk: &mut Chunk, vx: i32, vz: i32, y0: i32, y1: i32, id: u32) {
+    for vy in y0..=y1 {
+        chunk.set_voxel(vx, vy, vz, id);
+    }
+}
+
+// ── city stage ────────────────────────────────────────────────────────────────
+
+struct CityStage;
+
+impl CityStage {
+    // Flat-roofed office block
+    fn office(chunk: &mut Chunk, ox: i32, oz: i32, ground: i32, ids: &Ids) {
+        let h = 10;
+        walls(chunk, ox, ground, oz, ox + 7, ground + h, oz + 7, ids.dark_stone);
+        // glass window strips every 2 floors
+        for floor in 0..5 {
+            let vy = ground + 2 + floor * 2;
+            for vx in ox + 1..=ox + 6 {
+                chunk.set_voxel(vx, vy, oz, ids.glass);
+                chunk.set_voxel(vx, vy, oz + 7, ids.glass);
+            }
+            for vz in oz + 1..=oz + 6 {
+                chunk.set_voxel(ox, vy, vz, ids.glass);
+                chunk.set_voxel(ox + 7, vy, vz, ids.glass);
+            }
+        }
+        // rooftop lip
+        fill(chunk, ox, ground + h + 1, oz, ox + 7, ground + h + 1, oz + 7, ids.cobble);
     }
 
-    fn process(&self, mut chunk: Chunk, resources: Resources, _: Option<Space>) -> Chunk {
-        // Only build in the origin chunk
-        if chunk.coords != Vec2(0, 0) {
-            return chunk;
+    // Tall skyscraper
+    fn skyscraper(chunk: &mut Chunk, ox: i32, oz: i32, ground: i32, ids: &Ids) {
+        let h = 22;
+        // glass facade
+        walls(chunk, ox, ground, oz, ox + 5, ground + h, oz + 5, ids.glass);
+        // dark stone corner pillars
+        for (px, pz) in [(ox, oz), (ox + 5, oz), (ox, oz + 5), (ox + 5, oz + 5)] {
+            col(chunk, px, pz, ground, ground + h, ids.dark_stone);
         }
+        // setback spire
+        col(chunk, ox + 2, oz + 2, ground + h + 1, ground + h + 6, ids.dark_stone);
+        col(chunk, ox + 3, oz + 2, ground + h + 1, ground + h + 6, ids.dark_stone);
+        col(chunk, ox + 2, oz + 3, ground + h + 1, ground + h + 6, ids.dark_stone);
+        col(chunk, ox + 3, oz + 3, ground + h + 1, ground + h + 6, ids.dark_stone);
+        chunk.set_voxel(ox + 2, ground + h + 7, oz + 2, ids.brick);
+        chunk.set_voxel(ox + 3, ground + h + 7, oz + 2, ids.brick);
+        chunk.set_voxel(ox + 2, ground + h + 7, oz + 3, ids.brick);
+        chunk.set_voxel(ox + 3, ground + h + 7, oz + 3, ids.brick);
+        chunk.set_voxel(ox + 2, ground + h + 8, oz + 2, ids.dark_stone);
+    }
 
-        let reg = &resources.registry;
-        let brick = reg.get_block_by_name("Brick").id;
-        let dark = reg.get_block_by_name("Dark Stone").id;
-        let glass = reg.get_block_by_name("Glass").id;
-        let wood = reg.get_block_by_name("Wood").id;
-        let cobble = reg.get_block_by_name("Cobblestone").id;
-        let stone = reg.get_block_by_name("Stone").id;
+    // Low brick shop
+    fn shop(chunk: &mut Chunk, ox: i32, oz: i32, ground: i32, ids: &Ids) {
+        let h = 5;
+        walls(chunk, ox, ground, oz, ox + 5, ground + h, oz + 4, ids.brick);
+        // door gap
+        chunk.set_voxel(ox + 2, ground, oz, 0);
+        chunk.set_voxel(ox + 3, ground, oz, 0);
+        chunk.set_voxel(ox + 2, ground + 1, oz, 0);
+        chunk.set_voxel(ox + 3, ground + 1, oz, 0);
+        // windows
+        chunk.set_voxel(ox + 1, ground + 2, oz, ids.glass);
+        chunk.set_voxel(ox + 4, ground + 2, oz, ids.glass);
+        // flat wood roof
+        fill(chunk, ox, ground + h + 1, oz, ox + 5, ground + h + 1, oz + 4, ids.wood);
+    }
 
-        // Ground level is 13 (stone x10 + dirt x2 + grass x1)
-        let ground = 13;
+    // Road (stone strip)
+    fn road(chunk: &mut Chunk, x0: i32, z0: i32, x1: i32, z1: i32, ground: i32, ids: &Ids) {
+        for vx in x0..=x1 {
+            for vz in z0..=z1 {
+                chunk.set_voxel(vx, ground, vz, ids.stone);
+                // overwrite the grass layer
+                chunk.set_voxel(vx, ground - 1, vz, ids.stone);
+            }
+        }
+    }
 
-        // ── Outer wall footprint: 16×16 centered at (0,0)
-        let wx0 = -8_i32;
-        let wz0 = -8_i32;
-        let wx1 = 7_i32;
-        let wz1 = 7_i32;
+    // Castle (original feature)
+    fn castle(chunk: &mut Chunk, ground: i32, ids: &Ids) {
+        let (wx0, wz0, wx1, wz1) = (-8, -8, 7, 7);
         let wall_top = ground + 8;
-
-        // Outer walls (cobblestone), 8 blocks tall
         for vy in ground..=wall_top {
-            Self::set_walls(&mut chunk, wx0, wz0, wx1, wz1, vy, cobble);
+            for vx in wx0..=wx1 {
+                chunk.set_voxel(vx, vy, wz0, ids.cobble);
+                chunk.set_voxel(vx, vy, wz1, ids.cobble);
+            }
+            for vz in wz0..=wz1 {
+                chunk.set_voxel(wx0, vy, vz, ids.cobble);
+                chunk.set_voxel(wx1, vy, vz, ids.cobble);
+            }
         }
-
-        // Floor inside the walls
-        Self::set_rect(&mut chunk, wx0 + 1, wz0 + 1, wx1 - 1, wz1 - 1, ground, stone);
-
-        // Battlements on top of outer wall (every other block)
+        fill(chunk, wx0 + 1, ground, wz0 + 1, wx1 - 1, ground, wz1 - 1, ids.stone);
+        // battlements
         for vx in wx0..=wx1 {
             if (vx - wx0) % 2 == 0 {
-                chunk.set_voxel(vx, wall_top + 1, wz0, cobble);
-                chunk.set_voxel(vx, wall_top + 1, wz1, cobble);
+                chunk.set_voxel(vx, wall_top + 1, wz0, ids.cobble);
+                chunk.set_voxel(vx, wall_top + 1, wz1, ids.cobble);
             }
         }
         for vz in wz0..=wz1 {
             if (vz - wz0) % 2 == 0 {
-                chunk.set_voxel(wx0, wall_top + 1, vz, cobble);
-                chunk.set_voxel(wx1, wall_top + 1, vz, cobble);
+                chunk.set_voxel(wx0, wall_top + 1, vz, ids.cobble);
+                chunk.set_voxel(wx1, wall_top + 1, vz, ids.cobble);
             }
         }
-
-        // ── Corner towers: 4×4, 14 blocks tall
-        let tower_tops = [
-            (wx0, wz0),
-            (wx0, wz1 - 3),
-            (wx1 - 3, wz0),
-            (wx1 - 3, wz1 - 3),
-        ];
-        let tower_top = ground + 14;
-        for (tx, tz) in tower_tops {
-            for vy in ground..=tower_top {
-                Self::set_walls(&mut chunk, tx, tz, tx + 3, tz + 3, vy, brick);
-            }
-            // Tower roof cap
-            Self::set_rect(&mut chunk, tx, tz, tx + 3, tz + 3, tower_top + 1, dark);
-            // Battlements on towers
-            for i in 0..=3 {
+        // corner towers
+        for (tx, tz) in [(wx0, wz0), (wx0, wz1 - 3), (wx1 - 3, wz0), (wx1 - 3, wz1 - 3)] {
+            let tt = ground + 14;
+            walls(chunk, tx, ground, tz, tx + 3, tt, tz + 3, ids.brick);
+            fill(chunk, tx, tt + 1, tz, tx + 3, tt + 1, tz + 3, ids.dark_stone);
+            for i in 0..=3_i32 {
                 if i % 2 == 0 {
-                    chunk.set_voxel(tx + i, tower_top + 2, tz, brick);
-                    chunk.set_voxel(tx + i, tower_top + 2, tz + 3, brick);
-                    chunk.set_voxel(tx, tower_top + 2, tz + i, brick);
-                    chunk.set_voxel(tx + 3, tower_top + 2, tz + i, brick);
+                    chunk.set_voxel(tx + i, tt + 2, tz, ids.brick);
+                    chunk.set_voxel(tx + i, tt + 2, tz + 3, ids.brick);
+                    chunk.set_voxel(tx, tt + 2, tz + i, ids.brick);
+                    chunk.set_voxel(tx + 3, tt + 2, tz + i, ids.brick);
                 }
             }
         }
-
-        // ── Central keep: 8×8, 18 blocks tall
-        let kx0 = -4_i32;
-        let kz0 = -4_i32;
-        let kx1 = 3_i32;
-        let kz1 = 3_i32;
-        let keep_top = ground + 18;
-
-        for vy in ground..=keep_top {
-            Self::set_walls(&mut chunk, kx0, kz0, kx1, kz1, vy, brick);
-        }
-        // Keep floor
-        Self::set_rect(&mut chunk, kx0 + 1, kz0 + 1, kx1 - 1, kz1 - 1, ground + 1, wood);
-
-        // Windows on keep (glass, every 4 blocks up, 2 wide)
+        // keep
+        let (kx0, kz0, kx1, kz1) = (-4, -4, 3, 3);
+        let kt = ground + 18;
+        walls(chunk, kx0, ground, kz0, kx1, kt, kz1, ids.brick);
+        fill(chunk, kx0 + 1, ground + 1, kz0 + 1, kx1 - 1, ground + 1, kz1 - 1, ids.wood);
         for vy in [ground + 4, ground + 9, ground + 14] {
-            // North/south faces
             for vx in [kx0 + 2, kx0 + 4] {
-                chunk.set_voxel(vx, vy, kz0, glass);
-                chunk.set_voxel(vx, vy, kz1, glass);
+                chunk.set_voxel(vx, vy, kz0, ids.glass);
+                chunk.set_voxel(vx, vy, kz1, ids.glass);
             }
-            // East/west faces
             for vz in [kz0 + 2, kz0 + 4] {
-                chunk.set_voxel(kx0, vy, vz, glass);
-                chunk.set_voxel(kx1, vy, vz, glass);
+                chunk.set_voxel(kx0, vy, vz, ids.glass);
+                chunk.set_voxel(kx1, vy, vz, ids.glass);
             }
         }
-
-        // Keep roof (dark stone)
-        Self::set_rect(&mut chunk, kx0, kz0, kx1, kz1, keep_top + 1, dark);
-
-        // Spire on top of keep (4 blocks of dark stone tapering)
-        Self::set_col(&mut chunk, -1, -1, keep_top + 2, keep_top + 5, dark);
-        Self::set_col(&mut chunk, -1, 0, keep_top + 2, keep_top + 5, dark);
-        Self::set_col(&mut chunk, 0, -1, keep_top + 2, keep_top + 5, dark);
-        Self::set_col(&mut chunk, 0, 0, keep_top + 2, keep_top + 5, dark);
-        // Spire tip
-        chunk.set_voxel(0, keep_top + 6, 0, brick);
-        chunk.set_voxel(-1, keep_top + 6, 0, brick);
-        chunk.set_voxel(0, keep_top + 6, -1, brick);
-        chunk.set_voxel(-1, keep_top + 6, -1, brick);
-        chunk.set_voxel(0, keep_top + 7, 0, dark);
-
-        // ── Gateway (opening in south wall)
+        fill(chunk, kx0, kt + 1, kz0, kx1, kt + 1, kz1, ids.dark_stone);
+        for dx in [-1, 0] {
+            for dz in [-1, 0] {
+                col(chunk, dx, dz, kt + 2, kt + 5, ids.dark_stone);
+            }
+        }
+        chunk.set_voxel(0, kt + 7, 0, ids.dark_stone);
+        // gateway
         for vy in ground..=ground + 3 {
             chunk.set_voxel(-1, vy, wz0, 0);
             chunk.set_voxel(0, vy, wz0, 0);
+        }
+    }
+}
+
+struct Ids {
+    stone: u32,
+    brick: u32,
+    glass: u32,
+    wood: u32,
+    dark_stone: u32,
+    cobble: u32,
+}
+
+impl ChunkStage for CityStage {
+    fn name(&self) -> String {
+        "City".to_owned()
+    }
+
+    fn process(&self, mut chunk: Chunk, resources: Resources, _: Option<Space>) -> Chunk {
+        let reg = &resources.registry;
+        let ids = Ids {
+            stone: reg.get_block_by_name("Stone").id,
+            brick: reg.get_block_by_name("Brick").id,
+            glass: reg.get_block_by_name("Glass").id,
+            wood: reg.get_block_by_name("Wood").id,
+            dark_stone: reg.get_block_by_name("Dark Stone").id,
+            cobble: reg.get_block_by_name("Cobblestone").id,
+        };
+
+        let ground = 13;
+        let cx = chunk.coords.0;
+        let cz = chunk.coords.1;
+
+        match (cx, cz) {
+            // Origin chunk: castle
+            (0, 0) => Self::castle(&mut chunk, ground, &ids),
+
+            // East block: skyscraper + office
+            (1, 0) => {
+                Self::skyscraper(&mut chunk, 2, 2, ground, &ids);
+                Self::office(&mut chunk, 2, 10, ground, &ids);
+            }
+
+            // North block: two offices + shops
+            (0, 1) => {
+                Self::office(&mut chunk, 1, 1, ground, &ids);
+                Self::office(&mut chunk, 10, 1, ground, &ids);
+                Self::shop(&mut chunk, 2, 10, ground, &ids);
+                Self::shop(&mut chunk, 9, 10, ground, &ids);
+            }
+
+            // NE block: skyscraper cluster
+            (1, 1) => {
+                Self::skyscraper(&mut chunk, 1, 1, ground, &ids);
+                Self::office(&mut chunk, 8, 1, ground, &ids);
+                Self::shop(&mut chunk, 1, 9, ground, &ids);
+                Self::shop(&mut chunk, 8, 9, ground, &ids);
+            }
+
+            // South block: shops row
+            (0, -1) => {
+                for i in 0..2 {
+                    Self::shop(&mut chunk, 1 + i * 7, 2, ground, &ids);
+                    Self::shop(&mut chunk, 1 + i * 7, 9, ground, &ids);
+                }
+            }
+
+            // West block: office row
+            (-1, 0) => {
+                Self::office(&mut chunk, 2, 2, ground, &ids);
+                Self::office(&mut chunk, 2, 12, ground, &ids);
+            }
+
+            _ => {}
+        }
+
+        // Roads: lay stone strips along chunk edges in every city chunk
+        let city_chunks: &[(i32, i32)] = &[
+            (0, 0), (1, 0), (0, 1), (1, 1), (0, -1), (-1, 0),
+        ];
+        if city_chunks.contains(&(cx, cz)) {
+            let size = 16_i32;
+            let base_x = cx * size;
+            let base_z = cz * size;
+            // E–W road along z=0 of this chunk
+            Self::road(
+                &mut chunk,
+                base_x, base_z,
+                base_x + size - 1, base_z,
+                ground, &ids,
+            );
+            // N–S road along x=0
+            Self::road(
+                &mut chunk,
+                base_x, base_z,
+                base_x, base_z + size - 1,
+                ground, &ids,
+            );
         }
 
         chunk
     }
 }
+
+// ── main ──────────────────────────────────────────────────────────────────────
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -193,6 +295,8 @@ async fn main() -> std::io::Result<()> {
     let config = WorldConfig::new()
         .min_chunk([-10, -10])
         .max_chunk([10, 10])
+        .time_per_day(24000)
+        .default_time(6000.0) // midday
         .build();
 
     let mut world = World::new("tutorial", &config);
@@ -205,7 +309,7 @@ async fn main() -> std::io::Result<()> {
                 .add_soiling(dirt.id, 2)
                 .add_soiling(grass_block.id, 1),
         );
-        pipeline.add_stage(BuildingStage);
+        pipeline.add_stage(CityStage);
     }
 
     let mut registry = Registry::new();
