@@ -13,7 +13,7 @@ const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
   0.1,
-  10000
+  3000
 );
 
 const renderer = new THREE.WebGLRenderer({
@@ -64,36 +64,6 @@ function createCharacter() {
 
 const mainCharacter = createCharacter();
 rigidControls.attachCharacter(mainCharacter);
-
-// NPC
-const npc = createCharacter();
-npc.username = "Villager";
-
-const NPC_SPAWN = new THREE.Vector3(12, 13, 12);
-const NPC_RADIUS = 8;
-const NPC_SPEED = 0.015;
-let npcAngle = 0;
-let npcPos = NPC_SPAWN.clone();
-let npcReady = false;
-
-world.addChunkInitListener([0, 0], () => {
-  npcReady = true;
-});
-
-function updateNPC() {
-  if (!npcReady || !world.isInitialized) return;
-  npcAngle += NPC_SPEED;
-  const tx = NPC_SPAWN.x + Math.cos(npcAngle) * NPC_RADIUS;
-  const tz = NPC_SPAWN.z + Math.sin(npcAngle) * NPC_RADIUS;
-  const ty = 13; // known ground level
-
-  const dx = tx - npcPos.x;
-  const dz = tz - npcPos.z;
-  const len = Math.sqrt(dx * dx + dz * dz) || 1;
-  npcPos.set(tx, ty, tz);
-  npc.set([tx, ty, tz], [dx / len, 0, dz / len]);
-  npc.update();
-}
 
 inputs.bind("KeyG", rigidControls.toggleGhostMode, "in-game");
 inputs.bind("KeyF", rigidControls.toggleFly, "in-game");
@@ -175,7 +145,6 @@ function animate() {
     perspectives.update();
     lightShined.update();
     shadows.update();
-    updateNPC();
   }
 
   renderer.render(world, camera);
@@ -196,20 +165,13 @@ async function start() {
   await network.join("tutorial");
 
   await world.initialize();
-  world.renderRadius = 12;
+  world.renderRadius = 16;
 
-  // Push fog to match render distance so terrain fades at the edge not early
-  const chunkSize = 16;
-  world.chunkRenderer.uniforms.fogNear.value = chunkSize * world.renderRadius * 0.6;
-  world.chunkRenderer.uniforms.fogFar.value  = chunkSize * world.renderRadius * 0.95;
-  world.chunkRenderer.uniforms.fogColor.value = new THREE.Color("#8dc8ff");
-
-  // Teleport to known ground level — terrain is stone×10 + dirt×2 + grass×1
-  // so surface is always y=12, stand at y=15 to be safely above it.
+  // Float in place until chunk [0,0] is ready, then land on the road
+  rigidControls.toggleGhostMode();
   world.addChunkInitListener([0, 0], () => {
-    rigidControls.teleport(8, 15, 8);
+    rigidControls.teleportToTop(8, 8);
     if (rigidControls.ghostMode) rigidControls.toggleGhostMode();
-    rigidControls.body.gravityMultiplier = 1;
   });
 
   world.sky.setShadingPhases([
