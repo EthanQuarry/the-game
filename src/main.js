@@ -372,11 +372,11 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [13, 14.42, 10],
-  market:  [20, 14.42, 4],
-  well:    [28, 14.42, 12],
-  shelter: [4,  14.42, 20],
-  road:    [8,  14.42, 8],
+  tent:    [ 3, 14.42, -22],
+  road:    [ 0, 14.42,  -8],
+  market:  [16, 14.42,  -8],
+  shelter: [-8, 14.42,  -8],
+  alley:   [ 3, 14.42, -14],
 };
 
 const npcs = new Map();
@@ -407,35 +407,35 @@ function createNpc(id, name, spawnPos, skinName) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas",  [13,  14.42, 10],  "thomas");
-createNpc("marcus", "Marcus",  [-8,  14.42, 20],  "marcus");
-createNpc("diane",  "Diane",   [20,  14.42, -6],  "diane");
-createNpc("ray",    "Ray",     [-8,  14.42, -6],  "ray");
+createNpc("thomas", "Thomas",  [ 3,  14.42, -22], "thomas");
+createNpc("marcus", "Marcus",  [-22, 14.42,   8], "marcus");
+createNpc("diane",  "Diane",   [20,  14.42,  -8], "diane");
+createNpc("ray",    "Ray",     [-8,  14.42,  -8], "ray");
 
-// NPC waypoint tables (used by SSE handler for move_to_waypoint)
+// NPC waypoint tables (must match Rust npc/defs.rs coords)
 const NPC_WAYPOINTS = {
   thomas: {
-    tent:    [13, 14.42, 10],  market: [20, 14.42, 4],
-    well:    [28, 14.42, 12], shelter: [4,  14.42, 20],
-    road:    [8,  14.42, 8],
+    tent:    [ 3, 14.42, -22], road: [0, 14.42, -8],
+    market:  [16, 14.42,  -8], shelter: [-8, 14.42, -8],
+    alley:   [ 3, 14.42, -14],
   },
   marcus: {
-    stairwell: [-8, 14.42, 20], corner: [-4, 14.42, 8], road: [8, 14.42, 8],
+    stairwell: [-22, 14.42, 8], corner: [-10, 14.42, 0], road: [0, 14.42, 0],
   },
   diane: {
-    bodega: [20, 14.42, -6], doorway: [22, 14.42, -10], road: [8, 14.42, 8],
+    bodega: [20, 14.42, -8], doorway: [20, 14.42, -12], road: [0, 14.42, -8],
   },
   ray: {
-    shop: [-8, 14.42, -6], doorway: [-6, 14.42, -10], alley: [-4, 14.42, -14],
+    shop: [-8, 14.42, -8], doorway: [-8, 14.42, -12], alley: [-4, 14.42, -16],
   },
 };
 
-// Home positions for auto-retreat (each NPC retreats to their base)
+// Home positions for auto-retreat
 const NPC_HOME = {
-  thomas: { x: 13, z: 10 },
-  marcus: { x: -8, z: 20 },
-  diane:  { x: 20, z: -6 },
-  ray:    { x: -8, z: -6 },
+  thomas: { x:  3,  z: -22 },
+  marcus: { x: -22, z:   8 },
+  diane:  { x:  20, z:  -8 },
+  ray:    { x:  -8, z:  -8 },
 };
 
 const NPC_SPEED   = 0.025;
@@ -447,7 +447,7 @@ function npcGroundY(x, z) {
   const h = world.getMaxHeightAt(x, z);
   return (h !== null && h !== undefined ? h : 13) + NPC_EYE_Y;
 }
-const TENT_POS = { x: 13, z: 10 };
+const TENT_POS = { x: 3, z: -22 };
 const TENT_WANDER_RADIUS = 12;  // wanders within this many blocks of tent
 const FOLLOW_STOP_DIST   = 3;   // stops this many blocks from player
 const RETREAT_DIST       = 28;  // auto-retreats if further than this from tent
@@ -1005,8 +1005,8 @@ async function startVoice(npcId) {
     return; // mic denied — fail silently
   }
 
-  // Connect to our proxy — it forwards to OpenAI Realtime
-  const wsUrl = `${_wsProto()}://${_host}:4001/npc-voice?npc_id=${encodeURIComponent(npcId)}&player_name=${encodeURIComponent(playerName)}`;
+  // Connect to proxy — STT via OpenAI, brain via Claude, voice via ElevenLabs
+  const wsUrl = `${_wsProto()}://${_host}:4001/npc-voice?npc_id=${encodeURIComponent(npcId)}&player_id=${encodeURIComponent(playerId)}&player_name=${encodeURIComponent(playerName)}`;
   voiceWs = new WebSocket(wsUrl);
   voiceWs.binaryType = "arraybuffer";
 
@@ -1029,10 +1029,38 @@ async function startVoice(npcId) {
 }
 
 let _mp3Chunks = [];
+let _userTranscriptEl = null;
+
+function _getUserTranscriptEl() {
+  if (!_userTranscriptEl) {
+    _userTranscriptEl = document.createElement("div");
+    _userTranscriptEl.id = "voice-user-transcript";
+    Object.assign(_userTranscriptEl.style, {
+      position: "fixed", bottom: "110px", left: "50%",
+      transform: "translateX(-50%)",
+      background: "rgba(0,0,0,0.6)", color: "#ccc",
+      fontFamily: "monospace", fontSize: "12px",
+      padding: "3px 10px", borderRadius: "4px",
+      pointerEvents: "none", zIndex: "30", display: "none",
+    });
+    document.body.appendChild(_userTranscriptEl);
+  }
+  return _userTranscriptEl;
+}
 
 function _handleRealtimeEvent(ev) {
+  // User speaking — show live transcription above hotbar
+  if (ev.type === "user_transcript.delta" && ev.delta) {
+    const el = _getUserTranscriptEl();
+    el.textContent = (el.textContent || "") + ev.delta;
+    el.style.display = "block";
+  }
+  if (ev.type === "user_transcript.done") {
+    // Clear after a moment — NPC is now thinking
+    setTimeout(() => { const el = _getUserTranscriptEl(); el.textContent = ""; el.style.display = "none"; }, 800);
+  }
+  // NPC response transcript — update speech bubble
   if (ev.type === "transcript.delta" && ev.delta) {
-    // Live transcript — update speech bubble as LLM generates text
     const npc = npcs.get(voiceNpcId);
     if (npc) {
       npc.lastSpeech = (npc.lastSpeech || "") + ev.delta;
@@ -1041,7 +1069,6 @@ function _handleRealtimeEvent(ev) {
   }
   if (ev.type === "audio.start") {
     _mp3Chunks = [];
-    // Reset speech bubble for new response
     const npc = npcs.get(voiceNpcId);
     if (npc) npc.lastSpeech = "";
   }
@@ -1098,6 +1125,7 @@ function _startMicCapture() {
 function stopVoice() {
   voiceNpcId = null;
   voiceIndicator.style.display = "none";
+  if (_userTranscriptEl) { _userTranscriptEl.textContent = ""; _userTranscriptEl.style.display = "none"; }
   voiceOutQueue = [];
   voicePlaying = false;
   if (voiceProcessor) { voiceProcessor.disconnect(); voiceProcessor = null; }
@@ -1229,7 +1257,7 @@ function triggerDeath() {
     localDead = false;
     localHp = MAX_HP;
     renderLocalHealthBar();
-    controls.teleportToTop(8, 8);
+    controls.teleportToTop(0, 0);
     events.emit("player-respawn", {});
     setTimeout(() => { controls.isLocked = true; canvas.requestPointerLock(); inputs.setNamespace("in-game"); }, 100);
   }, 3000);
@@ -2013,7 +2041,7 @@ inputs.bind("ShiftLeft", () => {
 // ── Key bindings ──────────────────────────────────────────────────────────────
 
 inputs.bind("KeyG", controls.toggleGhostMode, "in-game");
-inputs.bind("KeyF", controls.toggleFly,       "in-game");
+// fly disabled
 inputs.bind("KeyJ", debug.toggle,             "*");
 
 controls.on("lock", () => {
@@ -2198,15 +2226,15 @@ async function start() {
   // Spawn: ghost mode until chunk [0,0] loads, then land on road
   controls.toggleGhostMode();
   world.addChunkInitListener([0, 0], () => {
-    controls.teleportToTop(8, 8);
+    controls.teleportToTop(0, 0);
     if (controls.ghostMode) controls.toggleGhostMode();
     fpHand.visible = true; // show bare hand on spawn (no weapon yet)
 
     // Spawn weapons on the ground — player must walk up and press E
     [
-      ["pistol",   new THREE.Vector3(10, 13.15, 8)],
-      ["shotgun",  new THREE.Vector3(12, 13.15, 8)],
-      ["ammo_9mm", new THREE.Vector3(11, 13.15, 9)],
+      ["pistol",   new THREE.Vector3( 2, 13.15,  2)],
+      ["shotgun",  new THREE.Vector3( 4, 13.15,  2)],
+      ["ammo_9mm", new THREE.Vector3( 3, 13.15,  3)],
     ].forEach(([id, pos]) => {
       const m = spawnGroundItem(id, null, pos);
       if (m) world.add(m);
@@ -2263,6 +2291,7 @@ async function start() {
   await world.applyBlockTexture("Tent Canvas",     all, "/blocks/tent_canvas.png");
   await world.applyBlockTexture("Cardboard",       all, "/blocks/cardboard.png");
   await world.applyBlockTexture("Lamp",            all, "/blocks/glass.png");
+  await world.applyBlockTexture("Leaf",            all, "/blocks/grass_top.png");
 
   // Water ripple shader
   try {
