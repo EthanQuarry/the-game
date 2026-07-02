@@ -13,8 +13,14 @@
         <div id="overlay-content">
           <h1>the-game</h1>
           <p>Click to play</p>
-          <span>WASD to move &nbsp;·&nbsp; Space to jump &nbsp;·&nbsp; F to fly &nbsp;·&nbsp; G to noclip &nbsp;·&nbsp; Click &amp; drag to look</span>
+          <span>WASD to move &nbsp;·&nbsp; Space to jump &nbsp;·&nbsp; F to fly &nbsp;·&nbsp; G to noclip &nbsp;·&nbsp; E to talk to NPCs</span>
         </div>
+      </div>
+      <div id="dialog" class="hidden">
+        <div id="dialog-name">Villager</div>
+        <div id="dialog-text"></div>
+        <div id="dialog-hint">Press Enter to send · Escape to close</div>
+        <input id="dialog-input" type="text" placeholder="Say something..." maxlength="200" autocomplete="off" />
       </div>
     </div>
     <script type="module" src="/main.js"></script>
