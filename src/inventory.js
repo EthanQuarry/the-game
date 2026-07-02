@@ -281,8 +281,13 @@ export function updateInventory(scene, playerPosition, dt) {
     if (!entry.settled) {
       entry.tossVel.y += _gravity;
       mesh.position.add(entry.tossVel);
-      if (mesh.position.y <= entry.groundY) {
-        mesh.position.y = entry.groundY;
+      // Query real ground height so item lands on the actual surface
+      const floorY = (scene.getMaxHeightAt
+        ? (scene.getMaxHeightAt(mesh.position.x, mesh.position.z) ?? entry.groundY)
+        : entry.groundY);
+      if (mesh.position.y <= floorY) {
+        mesh.position.y = floorY;
+        entry.groundY = floorY;
         entry.tossVel.set(0, 0, 0);
         entry.settled = true;
       }
@@ -371,7 +376,11 @@ export function tryDrop(scene, playerPosition, dropDir) {
   if (!item) return;
 
   const groundPos = playerPosition.clone();
-  groundPos.y -= 0.5;
+  // Resolve actual floor y so the item lands on the surface, not inside it
+  const floorY = scene.getMaxHeightAt
+    ? (scene.getMaxHeightAt(groundPos.x, groundPos.z) ?? (groundPos.y - 1))
+    : (groundPos.y - 1);
+  groundPos.y = floorY + 0.5; // start slightly above floor so toss arc works
 
   const mesh = spawnGroundItem(item.id, { ...item.data }, groundPos, dropDir);
   if (mesh) scene.add(mesh);

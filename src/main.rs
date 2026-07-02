@@ -815,6 +815,32 @@ fn sigv4_headers(
 
 // ── Bedrock call ─────────────────────────────────────────────────────────────
 
+/// Extract the first complete `{ ... }` JSON object from a string that may
+/// contain markdown fences, prose, or multiple JSON blocks.
+fn extract_first_json(text: &str) -> Option<&str> {
+    let start = text.find('{')?;
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escape = false;
+    let bytes = text.as_bytes();
+    for (i, &b) in bytes[start..].iter().enumerate() {
+        if escape { escape = false; continue; }
+        match b {
+            b'\\' if in_string => { escape = true; }
+            b'"' => { in_string = !in_string; }
+            b'{' if !in_string => { depth += 1; }
+            b'}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[start..=start + i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 async fn call_bedrock(
     creds: &AwsCreds,
     http: &reqwest::Client,
@@ -862,17 +888,13 @@ async fn call_bedrock(
         .as_str()
         .ok_or("No text in Bedrock response")?;
 
-    // Strip possible markdown code fences
-    let cleaned = text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
+    // Extract first complete JSON object — handles markdown fences, prose, multiple blocks
+    let json_str = extract_first_json(text)
+        .ok_or_else(|| format!("No JSON object found in response — raw: {}", &text[..text.len().min(400)]))?;
 
-    serde_json::from_str::<LlmResponse>(cleaned)
+    serde_json::from_str::<LlmResponse>(json_str)
         .map_err(|e| {
-            let preview = &cleaned[..cleaned.len().min(800)];
+            let preview = &json_str[..json_str.len().min(800)];
             format!("LLM JSON parse error: {} — raw: {}", e, preview)
         })
 }

@@ -351,11 +351,11 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [13, 13.5, 10],
-  market:  [20, 13.5, 4],
-  well:    [28, 13.5, 12],
-  shelter: [4,  13.5, 20],
-  road:    [8,  13.5, 8],
+  tent:    [13, 14.42, 10],
+  market:  [20, 14.42, 4],
+  well:    [28, 14.42, 12],
+  shelter: [4,  14.42, 20],
+  road:    [8,  14.42, 8],
 };
 
 const npcs = new Map();
@@ -383,26 +383,26 @@ function createNpc(id, name, spawnPos, skinName) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas",  [13,  13.5, 10],  "thomas");
-createNpc("marcus", "Marcus",  [-8,  13.5, 20],  "marcus");
-createNpc("diane",  "Diane",   [20,  13.5, -6],  "diane");
-createNpc("ray",    "Ray",     [-8,  13.5, -6],  "ray");
+createNpc("thomas", "Thomas",  [13,  14.42, 10],  "thomas");
+createNpc("marcus", "Marcus",  [-8,  14.42, 20],  "marcus");
+createNpc("diane",  "Diane",   [20,  14.42, -6],  "diane");
+createNpc("ray",    "Ray",     [-8,  14.42, -6],  "ray");
 
 // NPC waypoint tables (used by SSE handler for move_to_waypoint)
 const NPC_WAYPOINTS = {
   thomas: {
-    tent:    [13, 13.5, 10],  market: [20, 13.5, 4],
-    well:    [28, 13.5, 12], shelter: [4,  13.5, 20],
-    road:    [8,  13.5, 8],
+    tent:    [13, 14.42, 10],  market: [20, 14.42, 4],
+    well:    [28, 14.42, 12], shelter: [4,  14.42, 20],
+    road:    [8,  14.42, 8],
   },
   marcus: {
-    stairwell: [-8, 13.5, 20], corner: [-4, 13.5, 8], road: [8, 13.5, 8],
+    stairwell: [-8, 14.42, 20], corner: [-4, 14.42, 8], road: [8, 14.42, 8],
   },
   diane: {
-    bodega: [20, 13.5, -6], doorway: [22, 13.5, -10], road: [8, 13.5, 8],
+    bodega: [20, 14.42, -6], doorway: [22, 14.42, -10], road: [8, 14.42, 8],
   },
   ray: {
-    shop: [-8, 13.5, -6], doorway: [-6, 13.5, -10], alley: [-4, 13.5, -14],
+    shop: [-8, 14.42, -6], doorway: [-6, 14.42, -10], alley: [-4, 14.42, -14],
   },
 };
 
@@ -416,12 +416,12 @@ const NPC_HOME = {
 
 const NPC_SPEED   = 0.025;
 // Eye height above ground for NPCs with slim proportions (legs+body+neckGap+head/2 * S=0.9)
-const NPC_EYE_Y = 0.93;
+const NPC_EYE_Y = 1.42;
 
 function npcGroundY(x, z) {
   if (!world.isInitialized) return 12 + NPC_EYE_Y;
   const h = world.getMaxHeightAt(x, z);
-  return (h !== null && h !== undefined ? h : 12) + NPC_EYE_Y;
+  return (h !== null && h !== undefined ? h : 13) + NPC_EYE_Y;
 }
 const TENT_POS = { x: 13, z: 10 };
 const TENT_WANDER_RADIUS = 12;  // wanders within this many blocks of tent
