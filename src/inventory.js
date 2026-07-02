@@ -140,9 +140,9 @@ export function spawnGroundItem(id, data, position, tossDir = null) {
   root.userData.itemData = data ?? def.makeData();
 
   const innerMesh = def.makeMesh();
-  innerMesh.scale.setScalar(0.5);
-  // Lay flat on the ground — rotate so the gun's Z-axis points up
-  innerMesh.rotation.x = Math.PI / 2;
+  innerMesh.scale.setScalar(0.9);
+  // Lift slightly so grip clears ground surface — no rotation needed, gun is already horizontal
+  innerMesh.position.y = 0.12;
   root.add(innerMesh);
 
   root.position.copy(position); // caller places y directly on the surface
@@ -301,9 +301,7 @@ export function updateInventory(scene, playerPosition, dt) {
         continue;
       }
     } else if (entry.settled) {
-      // ── Idle bob + spin ───────────────────────────────────────────────
-      mesh.position.y = entry.groundY; // stay flat on the ground
-      innerMesh.rotation.z = _time * 0.6 + entry.spinOffset; // slow spin around up-axis (Z after X-tilt)
+      mesh.position.y = entry.groundY; // pinned to ground, no movement
     }
 
     // ── Nearest item detection ────────────────────────────────────────────

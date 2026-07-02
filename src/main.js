@@ -414,7 +414,15 @@ const NPC_HOME = {
   ray:    { x: -8, z: -6 },
 };
 
-const NPC_SPEED = 0.025;
+const NPC_SPEED   = 0.025;
+// Eye height above ground for NPCs with slim proportions (legs+body+neckGap+head/2 * S=0.9)
+const NPC_EYE_Y = 0.93;
+
+function npcGroundY(x, z) {
+  if (!world.isInitialized) return 12 + NPC_EYE_Y;
+  const h = world.getMaxHeightAt(x, z);
+  return (h !== null && h !== undefined ? h : 12) + NPC_EYE_Y;
+}
 const TENT_POS = { x: 13, z: 10 };
 const TENT_WANDER_RADIUS = 12;  // wanders within this many blocks of tent
 const FOLLOW_STOP_DIST   = 3;   // stops this many blocks from player
@@ -498,7 +506,7 @@ function updateNpcMovement(npc) {
       const step = Math.min(speed, dist);
       pos.x += (dx / dist) * step;
       pos.z += (dz / dist) * step;
-      pos.y = 13.5;
+      pos.y = npcGroundY(pos.x, pos.z);
       character.set([pos.x, pos.y, pos.z], [dx / dist, 0, dz / dist]);
     }
   } else {
