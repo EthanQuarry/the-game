@@ -63,7 +63,7 @@ async fn main() -> std::io::Result<()> {
         .preload(true)
         .preload_radius(4)
         .time_per_day(24000)
-        .default_time(18000.0)
+        .default_time(15000.0)
         .build();
 
     let mut world = World::new("tutorial", &config);
@@ -155,15 +155,13 @@ async fn main() -> std::io::Result<()> {
     let players_clone     = Arc::clone(&players);
     let npc_map_clone     = Arc::clone(&npc_map);
     let broadcast_clone   = broadcast_tx.clone();
-    let openai_key        = Arc::new(std::env::var("OPENAI_API_KEY").unwrap_or_default());
-    let el_key            = Arc::new(std::env::var("ELEVENLABS_API_KEY").unwrap_or_default());
+    let el_key = Arc::new(std::env::var("ELEVENLABS_API_KEY").unwrap_or_default());
 
     let http_server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(Arc::clone(&npc_map_clone)))
             .app_data(web::Data::new(Arc::clone(&players_clone)))
             .app_data(web::Data::new(broadcast_clone.clone()))
-            .app_data(web::Data::new((*openai_key).clone()))
             .app_data(web::Data::new((*el_key).clone()))
             .wrap(actix_web::middleware::DefaultHeaders::new()
                 .add(("Access-Control-Allow-Origin", "*"))
@@ -175,7 +173,8 @@ async fn main() -> std::io::Result<()> {
             .route("/npc-message",   web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/npc-state",     web::get().to(handle_npc_state))
             .route("/npc-events",    web::get().to(handle_npc_events))
-            .route("/npc-voice",     web::get().to(handle_npc_voice))
+            .route("/npc-tts",       web::post().to(handle_npc_tts))
+            .route("/npc-tts",       web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/player-update", web::post().to(handle_player_update))
             .route("/player-update", web::method(actix_web::http::Method::OPTIONS).to(handle_options))
             .route("/player-leave",  web::post().to(handle_player_leave))
