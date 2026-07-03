@@ -389,20 +389,28 @@ function makeCharacter(skinName) {
   lightShined.add(c);
   shadows.add(c);
   if (skin) {
-    // Hide until textures are painted post-initialize to suppress the
-    // "Texture marked for update but no image data found" warning
-    c.visible = false;
-    skinQueue.push({ c, skin });
+    if (world.isInitialized) {
+      // World already ready — paint immediately
+      paintSkin(c, skin);
+      c.visible = true;
+    } else {
+      // Queue for after world.initialize()
+      c.visible = false;
+      skinQueue.push({ c, skin });
+    }
   }
   return c;
 }
 
-const mainCharacter = makeCharacter("player");
+const PLAYER_SKINS = ["player", "thomas", "marcus", "diane", "chad", "homeless"];
+function randomSkin() { return PLAYER_SKINS[Math.floor(Math.random() * PLAYER_SKINS.length)]; }
+
+const mainCharacter = makeCharacter(randomSkin());
 controls.attachCharacter(mainCharacter);
 
 class GamePeers extends VOXELIZE.Peers {
   constructor(object) { super(object); }
-  createPeer = () => makeCharacter("player");
+  createPeer = () => makeCharacter(randomSkin());
   onPeerUpdate = (peer, rawData, { username } = {}) => {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
     peer.set(data.position, data.direction);
@@ -446,7 +454,9 @@ const NPC_API         = _https ? `${window.location.origin}/npc` : `http://${_ho
 
 
 const playerId = Math.random().toString(36).slice(2, 10);
-let playerName = "Player" + playerId.slice(0, 4); // overwritten by welcome screen
+const RANDOM_NAMES = ["Ghost","Viper","Rook","Cipher","Shade","Wraith","Drifter","Nomad","Patch","Static","Flint","Sable","Echo","Sparrow","Jinx"];
+function randomName() { return RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)] + Math.floor(Math.random() * 99 + 1); }
+let playerName = randomName();
 
 // A* pathfinder (flat terrain, ground at y=13)
 function astar(sx, sz, gx, gz) {
@@ -1830,11 +1840,6 @@ const _peerWorldPos = new THREE.Vector3();
 function fireRay(dir) {
   const origin = new THREE.Vector3();
   camera.getWorldPosition(origin);
-  console.log(`fireRay origin=(${origin.x.toFixed(1)},${origin.y.toFixed(1)},${origin.z.toFixed(1)}) dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)})`);
-  for (const [id, npc] of npcs) {
-    const footY = npc.pos.y - NPC_EYE_Y;
-    console.log(`  npc[${id}] pos=(${npc.pos.x.toFixed(1)},${npc.pos.y.toFixed(1)},${npc.pos.z.toFixed(1)}) foot=${footY.toFixed(1)} dead=${npc.dead}`);
-  }
 
   // Tracer origin = gun muzzle world position (visual only)
   const muzzleOrigin = origin.clone();
@@ -2593,7 +2598,6 @@ welcomeNameEl.addEventListener("keydown", (e) => {
 });
 
 // Dev: auto-fill name and go straight to overlay
-playerName = "dev";
-mainCharacter.username = "dev";
-peers.ownUsername = "dev";
+mainCharacter.username = playerName;
+peers.ownUsername = playerName;
 start();
