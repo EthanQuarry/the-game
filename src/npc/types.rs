@@ -34,6 +34,8 @@ pub struct NpcState {
     pub nearby_items: Vec<(String, f32)>,
     pub held_item: Option<String>,
     pub last_autonomous_tick: std::time::Instant,
+    // Players who have already been greeted — don't greet again until they leave and return
+    pub greeted_players: std::collections::HashSet<String>,
 }
 
 pub struct NpcDef {

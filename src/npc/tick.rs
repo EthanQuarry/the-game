@@ -92,8 +92,41 @@ pub async fn run_npc_tick(
         };
 
         if in_flight { continue; }
-        let autonomous_due = nearby_count > 0 && time_since_last >= def.tick_rate_near_ms;
-        if !has_messages && !autonomous_due { continue; }
+
+        // Check for players newly entering greeting radius (~4 blocks)
+        let greeting_trigger: Option<(String, String)> = {
+            let mut npc = npc_arc.lock().unwrap();
+            let all = players.lock().unwrap();
+            let mut trigger = None;
+            for p in all.iter() {
+                let dx = p.pos[0] - npc.pos.0;
+                let dz = p.pos[2] - npc.pos.2;
+                let dist = (dx*dx + dz*dz).sqrt();
+                if dist < 4.0 && !npc.greeted_players.contains(&p.id) {
+                    npc.greeted_players.insert(p.id.clone());
+                    trigger = Some((p.id.clone(), p.name.clone()));
+                    break;
+                }
+                // Remove from greeted if they walk away (>8 blocks) so they get greeted again on return
+                if dist > 8.0 {
+                    npc.greeted_players.remove(&p.id);
+                }
+            }
+            trigger
+        };
+
+        let has_greeting = greeting_trigger.is_some();
+        if let Some((pid, pname)) = greeting_trigger {
+            let mut npc = npc_arc.lock().unwrap();
+            npc.message_queue.push((
+                pid,
+                pname,
+                "[SYSTEM: This player just walked up to you. Acknowledge them briefly in character.]".to_string(),
+            ));
+        }
+
+        // Only tick when there's a message — no autonomous chatter
+        if !has_messages && !has_greeting { continue; }
 
         let (queued_msgs, pos, emotion) = {
             let mut npc = npc_arc.lock().unwrap();

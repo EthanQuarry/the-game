@@ -2275,7 +2275,6 @@ inputs.bind("ShiftLeft", () => {
 // ── Key bindings ──────────────────────────────────────────────────────────────
 
 inputs.bind("KeyG", controls.toggleGhostMode, "in-game");
-inputs.bind("KeyJ", debug.toggle,             "*");
 
 // ── H key: toggle hitbox visualiser ──────────────────────────────────────────
 let hitboxVis = false;
@@ -2344,16 +2343,18 @@ function typeText(element, text, speed = 60) {
 const _titleEl    = document.getElementById("title-text");
 const _subtitleEl = document.getElementById("subtitle-text");
 const _playEl     = document.getElementById("play-button");
-typeText(_titleEl, "Retro-deck", 60);
+typeText(_titleEl, "SF Simulator", 60);
 setTimeout(() => typeText(_subtitleEl, "A San-Francisco adventure", 30), 500);
 setTimeout(() => typeText(_playEl, "Click to play", 30), 1000);
 
 canvas.addEventListener("click", () => {
   if (!welcomeScreen.classList.contains("hidden")) return; // welcome screen still up
-  overlay.classList.add("hidden");
-  controls.isLocked = true;
-  inputs.setNamespace("in-game");
-  canvas.requestPointerLock();
+  if (!overlay.classList.contains("hidden")) {
+    overlay.classList.add("hidden");
+    controls.isLocked = true;
+    inputs.setNamespace("in-game");
+    canvas.requestPointerLock();
+  }
 });
 
 inputs.bind("Escape", () => {
@@ -2412,23 +2413,25 @@ function animate() {
     lightShined.update();
     shadows.update();
     peers.update();
-    debug.update();
     // Update floating HP bars above peers
     peerHp.forEach((entry, peerId) => updatePeerHpBarPosition(peerId));
 
     for (const npc of npcs.values()) {
       if (!npc.dead) updateNpcMovement(npc);
       updateBubblePosition(npc);
-      // NPC HP bar position
+      // NPC HP bar position — hide while in menu
       if (npc.hpBar && !npc.dead) {
-        const wp = npc.pos.clone();
-        wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.25;
-        wp.project(camera);
-        if (wp.z > 1) { npc.hpBar.style.display = 'none'; }
+        if (!controls.isLocked) { npc.hpBar.style.display = 'none'; }
         else {
-          npc.hpBar.style.display = 'block';
-          npc.hpBar.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + 'px';
-          npc.hpBar.style.top  = ((-wp.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+          const wp = npc.pos.clone();
+          wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.25;
+          wp.project(camera);
+          if (wp.z > 1) { npc.hpBar.style.display = 'none'; }
+          else {
+            npc.hpBar.style.display = 'block';
+            npc.hpBar.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+            npc.hpBar.style.top  = ((-wp.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+          }
         }
       }
       // Auto-pickup: if NPC walks within 1.5 blocks of a ground item and has no held item, pick it up
@@ -2652,14 +2655,8 @@ function submitWelcome() {
   peers.ownUsername = name;
 
   welcomeScreen.classList.add("hidden");
-  // Kick off the game now
+  overlay.classList.remove("hidden");
   start();
-  // After a tick, lock the pointer
-  setTimeout(() => {
-    canvas.requestPointerLock();
-    controls.isLocked = true;
-    inputs.setNamespace("in-game");
-  }, 100);
 }
 
 welcomeEnterBtn.addEventListener("click", submitWelcome);
@@ -2667,14 +2664,8 @@ welcomeNameEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") submitWelcome();
 });
 
-if (import.meta.env.DEV) {
-  // Skip welcome screen in dev — use a fixed name so HMR reloads don't interrupt
-  playerName = "dev";
-  mainCharacter.username = "dev";
-  peers.ownUsername = "dev";
-  welcomeScreen.classList.add("hidden");
-  overlay.classList.remove("hidden");
-  start();
-} else {
-  welcomeNameEl.focus();
-}
+// Dev: auto-fill name and go straight to overlay
+playerName = "dev";
+mainCharacter.username = "dev";
+peers.ownUsername = "dev";
+start();

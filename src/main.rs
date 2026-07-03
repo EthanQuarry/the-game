@@ -63,7 +63,7 @@ async fn main() -> std::io::Result<()> {
         .preload(true)
         .preload_radius(4)
         .time_per_day(24000)
-        .default_time(19992.0)
+        .default_time(18000.0)
         .build();
 
     let mut world = World::new("tutorial", &config);
@@ -94,6 +94,7 @@ async fn main() -> std::io::Result<()> {
         nearby_items: Vec::new(),
         held_item: None,
         last_autonomous_tick: std::time::Instant::now(),
+        greeted_players: std::collections::HashSet::new(),
     }));
 
     let thomas_state = make_npc(&THOMAS);
