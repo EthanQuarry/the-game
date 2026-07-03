@@ -2320,6 +2320,21 @@ controls.on("unlock", () => {
 
 const overlay = document.getElementById("overlay");
 
+// Typewriter animation for overlay title/subtitle/button
+function typeText(element, text, speed = 60) {
+  if (!element) return;
+  element.textContent = "";
+  let i = 0;
+  function tick() { element.textContent += text[i]; i++; if (i < text.length) setTimeout(tick, speed); }
+  tick();
+}
+const _titleEl    = document.getElementById("title-text");
+const _subtitleEl = document.getElementById("subtitle-text");
+const _playEl     = document.getElementById("play-button");
+typeText(_titleEl, "Retro-deck", 60);
+setTimeout(() => typeText(_subtitleEl, "A San-Francisco adventure", 30), 500);
+setTimeout(() => typeText(_playEl, "Click to play", 30), 1000);
+
 canvas.addEventListener("click", () => {
   if (!welcomeScreen.classList.contains("hidden")) return; // welcome screen still up
   overlay.classList.add("hidden");
