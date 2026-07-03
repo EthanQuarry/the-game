@@ -1331,15 +1331,6 @@ function checkVoiceProximity() {
   }
 }
 
-// ── Debug panel (disabled) ────────────────────────────────────────────────────
-
-const debug = new VOXELIZE.Debug(document.body);
-debug.registerDisplay("Position",        controls, "voxel");
-debug.registerDisplay("Chunks loaded",   () => world.chunks?.loaded?.size   ?? "?");
-debug.registerDisplay("Chunks requested",() => world.chunks?.requested?.size ?? "?");
-debug.registerDisplay("Render radius",   world, "renderRadius");
-debug.dataWrapper.style.display = "none";
-
 // ── Health / PvP system ───────────────────────────────────────────────────────
 
 const MAX_HP = 100;
@@ -2682,6 +2673,7 @@ if (import.meta.env.DEV) {
   mainCharacter.username = "dev";
   peers.ownUsername = "dev";
   welcomeScreen.classList.add("hidden");
+  overlay.classList.remove("hidden");
   start();
 } else {
   welcomeNameEl.focus();

@@ -35,7 +35,7 @@ REPLY RULE: If the Messages section is non-empty, action.type MUST be \"speak\" 
 WEAPON RULES:\n\
 - If holding a gun AND player threatens → action MUST be shoot_player.\n\
 - If gun nearby AND threatened → action MUST be pick_up_item.\n\n\
-REPLY RULE: If Messages is non-empty, action.type MUST be "speak" with a non-null message.\n\nJSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle|pick_up_item|shoot_player|drop_item|holster\",\"waypoint\":\"tent|road|market|shelter|alley\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"tired|guarded|warm|bitter|amused\",\"memory_updates\":{}}",
+JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle|pick_up_item|shoot_player|drop_item|holster\",\"waypoint\":\"tent|road|market|shelter|alley\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"tired|guarded|warm|bitter|amused\",\"memory_updates\":{}}",
     waypoints: THOMAS_WAYPOINTS,
     nearby_radius: 20.0,
     tick_rate_near_ms: 2000,
@@ -61,7 +61,7 @@ Thomas owes him 8 coins. Ray owes him 20. He finds this mildly entertaining.\n\n
 WORLD: Walled city. His base is the stairwell at (-22,8).\n\
 Named waypoints: stairwell, corner, road.\n\n\
 MOVEMENT: Move deliberately. Stay at stairwell first with new contacts.\n\
-REPLY RULE: If Messages is non-empty, action.type MUST be "speak" with a non-null message.\n\nJSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle\",\"waypoint\":\"stairwell|corner|road\",\"target_player\":\"<id>\",\"message\":\"<under 8 words>\"},\"emotion\":\"neutral|calculating|amused|cold|watchful\",\"memory_updates\":{}}",
+JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle\",\"waypoint\":\"stairwell|corner|road\",\"target_player\":\"<id>\",\"message\":\"<under 8 words>\"},\"emotion\":\"neutral|calculating|amused|cold|watchful\",\"memory_updates\":{}}",
     waypoints: MARCUS_WAYPOINTS,
     nearby_radius: 10.0,
     tick_rate_near_ms: 2000,
@@ -86,7 +86,7 @@ Stopped giving Thomas free food after he stole twice. Doesn't trust Ray.\n\
 Has a complicated history with Marcus — he's never bothered her shop.\n\n\
 WORLD: Her bodega is at (20,-8). Road runs in front.\n\
 Named waypoints: bodega, doorway, road.\n\n\
-REPLY RULE: If Messages is non-empty, action.type MUST be "speak" with a non-null message.\n\nJSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|idle\",\"waypoint\":\"bodega|doorway|road\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"neutral|concerned|amused|tired|suspicious|warm\",\"memory_updates\":{}}",
+JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|idle\",\"waypoint\":\"bodega|doorway|road\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"neutral|concerned|amused|tired|suspicious|warm\",\"memory_updates\":{}}",
     waypoints: DIANE_WAYPOINTS,
     nearby_radius: 12.0,
     tick_rate_near_ms: 2000,
@@ -110,7 +110,7 @@ BACKSTORY: Owes Marcus 20 coins from a loan. Buys anything no questions asked.\n
 Desperately wants help with the Marcus situation but too scared to ask directly.\n\n\
 WORLD: His pawnshop is at (-8,-8).\n\
 Named waypoints: shop, doorway, alley.\n\n\
-REPLY RULE: If Messages is non-empty, action.type MUST be "speak" with a non-null message.\n\nJSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|idle\",\"waypoint\":\"shop|doorway|alley\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"nervous|fake_confident|scared|eager|relieved\",\"memory_updates\":{}}",
+JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|idle\",\"waypoint\":\"shop|doorway|alley\",\"target_player\":\"<id>\",\"message\":\"<under 10 words>\"},\"emotion\":\"nervous|fake_confident|scared|eager|relieved\",\"memory_updates\":{}}",
     waypoints: RAY_WAYPOINTS,
     nearby_radius: 10.0,
     tick_rate_near_ms: 2000,
@@ -147,7 +147,7 @@ Genuinely scared of Marcus but thinks Marcus is \"an operator\".\n\n\
 WORLD: He's near the park bench at (10,16). Wandering the block taking notes in Notion.\n\
 Named waypoints: bench, corner, road, cafe.\n\n\
 MOVEMENT: Wanders with purpose. Follows interesting people. Retreats to bench to \"journal\".\n\
-REPLY RULE: If Messages is non-empty, action.type MUST be "speak" with a non-null message.\n\nJSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle\",\"waypoint\":\"bench|corner|road|cafe\",\"target_player\":\"<id>\",\"message\":\"<under 12 words>\"},\"emotion\":\"excited|pitching|oblivious|nervous|inspired|rejected\",\"memory_updates\":{}}",
+JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|move_toward|move_away|idle\",\"waypoint\":\"bench|corner|road|cafe\",\"target_player\":\"<id>\",\"message\":\"<under 12 words>\"},\"emotion\":\"excited|pitching|oblivious|nervous|inspired|rejected\",\"memory_updates\":{}}",
     waypoints: CHAD_WAYPOINTS,
     nearby_radius: 14.0,
     tick_rate_near_ms: 1800,
