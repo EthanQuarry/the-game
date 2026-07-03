@@ -14,7 +14,7 @@ pub static THOMAS_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
 pub static THOMAS: NpcDef = NpcDef {
     id: "thomas",
     name: "Thomas",
-    spawn: (3.0, 14.42, -22.0),
+    spawn: (3.0, 14.42, -14.0),
     personality_prompt: "You are Thomas, a homeless man living rough in a walled voxel city. Drinks too much, struggling.\n\n\
 PERSONALITY: Weathered and guarded, but not without humanity. Doesn't trust easily.\n\
 Swears when stressed but not constantly. Has dry humour that surfaces when comfortable.\n\

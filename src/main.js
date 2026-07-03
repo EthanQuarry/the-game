@@ -491,7 +491,7 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [ 3, 14.42, -22],
+  tent:    [ 3, 14.42, -14],
   road:    [ 0, 14.42,  -8],
   market:  [16, 14.42,  -8],
   shelter: [-8, 14.42,  -8],
@@ -538,7 +538,7 @@ function createNpc(id, name, spawnPos, skinName) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas",  [ 3,  14.42, -22], "thomas");
+createNpc("thomas", "Thomas",  [ 3,  14.42, -14], "thomas");
 createNpc("marcus", "Marcus",  [-22, 14.42,   8], "marcus");
 createNpc("diane",  "Diane",   [20,  14.42,  -8], "diane");
 createNpc("ray",    "Ray",     [-8,  14.42,  -8], "ray");
@@ -546,7 +546,7 @@ createNpc("ray",    "Ray",     [-8,  14.42,  -8], "ray");
 // NPC waypoint tables (must match Rust npc/defs.rs coords)
 const NPC_WAYPOINTS = {
   thomas: {
-    tent:    [ 3, 14.42, -22], road: [0, 14.42, -8],
+    tent:    [ 3, 14.42, -14], road: [0, 14.42, -8],
     market:  [16, 14.42,  -8], shelter: [-8, 14.42, -8],
     alley:   [ 3, 14.42, -14],
   },
@@ -563,7 +563,7 @@ const NPC_WAYPOINTS = {
 
 // Home positions for auto-retreat
 const NPC_HOME = {
-  thomas: { x:  3,  z: -22 },
+  thomas: { x:  3,  z: -14 },
   marcus: { x: -22, z:   8 },
   diane:  { x:  20, z:  -8 },
   ray:    { x:  -8, z:  -8 },
@@ -574,11 +574,13 @@ const NPC_SPEED   = 0.025;
 const NPC_EYE_Y = 1.42;
 
 function npcGroundY(x, z) {
-  if (!world.isInitialized) return 12 + NPC_EYE_Y;
+  if (!world.isInitialized) return 13 + NPC_EYE_Y;
   const h = world.getMaxHeightAt(x, z);
-  return (h !== null && h !== undefined ? h : 13) + NPC_EYE_Y;
+  // Clamp to at least y=12 (grass surface) so NPCs don't fall into water
+  const groundH = Math.max(h !== null && h !== undefined ? h : 13, 12);
+  return groundH + NPC_EYE_Y;
 }
-const TENT_POS = { x: 3, z: -22 };
+const TENT_POS = { x: 3, z: -14 };
 const TENT_WANDER_RADIUS = 12;  // wanders within this many blocks of tent
 const FOLLOW_STOP_DIST   = 3;   // stops this many blocks from player
 const RETREAT_DIST       = 28;  // auto-retreats if further than this from tent
@@ -690,6 +692,56 @@ function updateBubblePosition(npc) {
   speechBubble.style.display = "";
   speechBubble.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + "px";
   speechBubble.style.top  = ((-wp.y * 0.5 + 0.5) * window.innerHeight) + "px";
+}
+
+// ── NPC health ────────────────────────────────────────────────────────────────
+
+const NPC_RESPAWN_TIME = 12000; // ms before NPC respawns
+
+function updateNpcHpBar(npc) {
+  if (!npc.hpBar) return;
+  const pct = Math.max(0, npc.hp / npc.maxHp);
+  const fill = npc.hpBar.querySelector('.phb-fill');
+  if (fill) {
+    fill.style.width = `${pct * 100}%`;
+    fill.style.background = pct > 0.5 ? '#2ecc71' : pct > 0.25 ? '#f39c12' : '#e74c3c';
+  }
+  npc.hpBar.classList.toggle('hidden', npc.hp >= npc.maxHp || npc.dead);
+}
+
+function damageNpc(npcId, dmg, hitPoint) {
+  const npc = npcs.get(npcId);
+  if (!npc || npc.dead) return;
+
+  npc.hp = Math.max(0, npc.hp - dmg);
+  updateNpcHpBar(npc);
+  showKillfeedEntry(`Hit ${npc.name} -${dmg}hp`);
+
+  if (npc.hp <= 0) {
+    // NPC dies — hide character, show kill feed, respawn after delay
+    npc.dead = true;
+    npc.character.visible = false;
+    npc.hpBar.classList.add('hidden');
+    npcDetachItemMesh(npc);
+    npc.heldItem = null;
+    showKillfeedEntry(`${npc.name} killed`);
+    showSpeechBubble(npc, '*dies*');
+    setTimeout(() => {
+      npc.hp = npc.maxHp;
+      npc.dead = false;
+      npc.character.visible = true;
+      // Reset to home position
+      const home = NPC_HOME[npcId];
+      if (home) npc.pos.set(home.x, npc.pos.y, home.z);
+      updateNpcHpBar(npc);
+    }, NPC_RESPAWN_TIME);
+  } else {
+    // React — flee and say something
+    npc.mode = 'retreating';
+    const home = NPC_HOME[npcId];
+    if (home) npc.target = { x: home.x, z: home.z };
+    showSpeechBubble(npc, ['Ow!', 'What the—', 'Hey!', 'You shot me!'][Math.floor(Math.random()*4)]);
+  }
 }
 
 // SSE for LLM NPC events
@@ -1851,21 +1903,23 @@ function fireRay(dir) {
   const origin = new THREE.Vector3();
   controls.object.getWorldPosition(origin);
 
-  // Check peers first — players take priority over voxels
+  // Check peers and NPCs — closest hit wins
   _ray.set(origin, dir);
   let closestPeerDist = currentWeapon.range;
   let hitPeerId = null;
   let hitPeerPoint = null;
+  let hitNpcId = null;
+  let hitNpcPoint = null;
 
+  // ── Remote players ────────────────────────────────────────────────────────
   peers.map.forEach((character, peerId) => {
     character.getWorldPosition(_peerWorldPos);
-    // character root is at eye height — offset box to span feet→head
     const eyeH  = character.eyeHeight  ?? 1.09;
     const totalH = character.totalHeight ?? 1.31;
-    const halfW = 0.4; // slightly narrower than full body width for fair play
+    const halfW = 0.4;
     _hitBox.set(
-      new THREE.Vector3(_peerWorldPos.x - halfW, _peerWorldPos.y - eyeH,              _peerWorldPos.z - halfW),
-      new THREE.Vector3(_peerWorldPos.x + halfW, _peerWorldPos.y + (totalH - eyeH),   _peerWorldPos.z + halfW),
+      new THREE.Vector3(_peerWorldPos.x - halfW, _peerWorldPos.y - eyeH,            _peerWorldPos.z - halfW),
+      new THREE.Vector3(_peerWorldPos.x + halfW, _peerWorldPos.y + (totalH - eyeH), _peerWorldPos.z + halfW),
     );
     const intersect = new THREE.Vector3();
     if (_ray.intersectBox(_hitBox, intersect)) {
@@ -1873,7 +1927,34 @@ function fireRay(dir) {
       if (dist < closestPeerDist) {
         closestPeerDist = dist;
         hitPeerId = peerId;
+        hitNpcId  = null;
         hitPeerPoint = intersect.clone();
+        hitNpcPoint  = null;
+      }
+    }
+  });
+
+  // ── NPCs ──────────────────────────────────────────────────────────────────
+  // npc.pos.y is set by npcGroundY() which returns ground + NPC_EYE_Y (eye level).
+  // So feet = pos.y - NPC_EYE_Y, head top = feet + totalHeight.
+  npcs.forEach((npc, npcId) => {
+    if (npc.dead) return;
+    const totalH = npc.character.totalHeight ?? 1.31;
+    const halfW  = 0.45;
+    const footY  = npc.pos.y - NPC_EYE_Y;
+    _hitBox.set(
+      new THREE.Vector3(npc.pos.x - halfW, footY,          npc.pos.z - halfW),
+      new THREE.Vector3(npc.pos.x + halfW, footY + totalH, npc.pos.z + halfW),
+    );
+    const intersect = new THREE.Vector3();
+    if (_ray.intersectBox(_hitBox, intersect)) {
+      const dist = origin.distanceTo(intersect);
+      if (dist < closestPeerDist) {
+        closestPeerDist = dist;
+        hitNpcId   = npcId;
+        hitPeerId  = null;
+        hitNpcPoint  = intersect.clone();
+        hitPeerPoint = null;
       }
     }
   });
@@ -1895,6 +1976,15 @@ function fireRay(dir) {
     const targetChar = peers.map.get(hitPeerId);
     const targetName = targetChar?.username || hitPeerId.slice(0, 6);
     showKillfeedEntry(`Hit ${targetName} -${dmg}hp`);
+    return;
+  }
+
+  // NPC hit
+  if (hitNpcId && closestPeerDist < voxDist) {
+    const dmg = currentWeaponKey === "shotgun" ? 15 : 25;
+    damageNpc(hitNpcId, dmg, hitNpcPoint);
+    spawnHitSparks(hitNpcPoint.toArray(), [0, 1, 0]);
+    spawnTracer(origin.clone(), hitNpcPoint, 0xff3333);
     return;
   }
 
@@ -2173,8 +2263,50 @@ inputs.bind("ShiftLeft", () => {
 // ── Key bindings ──────────────────────────────────────────────────────────────
 
 inputs.bind("KeyG", controls.toggleGhostMode, "in-game");
-// fly disabled
 inputs.bind("KeyJ", debug.toggle,             "*");
+
+// ── H key: toggle hitbox visualiser ──────────────────────────────────────────
+let hitboxVis = false;
+const hitboxHelpers = [];
+
+function refreshHitboxHelpers() {
+  hitboxHelpers.forEach(h => world.remove(h));
+  hitboxHelpers.length = 0;
+  if (!hitboxVis) return;
+
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+
+  // NPC hitboxes — green
+  npcs.forEach(npc => {
+    const totalH = npc.character.totalHeight ?? 1.31;
+    const footY  = npc.pos.y - NPC_EYE_Y;
+    const geo = new THREE.BoxGeometry(0.9, totalH, 0.9);
+    const mesh = new THREE.Mesh(geo, wireMat);
+    mesh.position.set(npc.pos.x, footY + totalH / 2, npc.pos.z);
+    world.add(mesh);
+    hitboxHelpers.push(mesh);
+  });
+
+  // Peer hitboxes — yellow
+  const peerMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
+  peers.map.forEach(character => {
+    const p = new THREE.Vector3();
+    character.getWorldPosition(p);
+    const eyeH  = character.eyeHeight  ?? 1.09;
+    const totalH = character.totalHeight ?? 1.31;
+    const geo = new THREE.BoxGeometry(0.8, totalH, 0.8);
+    const mesh = new THREE.Mesh(geo, peerMat);
+    mesh.position.set(p.x, p.y - eyeH + totalH / 2, p.z);
+    world.add(mesh);
+    hitboxHelpers.push(mesh);
+  });
+}
+
+inputs.bind("KeyH", () => {
+  hitboxVis = !hitboxVis;
+  refreshHitboxHelpers();
+  console.log('Hitbox vis:', hitboxVis);
+}, "in-game");
 
 controls.on("lock", () => {
   inputs.setNamespace("in-game");
@@ -2258,8 +2390,20 @@ function animate() {
     peerHp.forEach((entry, peerId) => updatePeerHpBarPosition(peerId));
 
     for (const npc of npcs.values()) {
-      updateNpcMovement(npc);
+      if (!npc.dead) updateNpcMovement(npc);
       updateBubblePosition(npc);
+      // NPC HP bar position
+      if (npc.hpBar && !npc.hpBar.classList.contains('hidden')) {
+        const wp = npc.pos.clone();
+        wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.25;
+        wp.project(camera);
+        if (wp.z > 1) { npc.hpBar.style.display = 'none'; }
+        else {
+          npc.hpBar.style.display = 'block';
+          npc.hpBar.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+          npc.hpBar.style.top  = ((-wp.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+        }
+      }
       // Auto-pickup: if NPC walks within 1.5 blocks of a ground item and has no held item, pick it up
       if (!npc.heldItem) {
         for (let i = groundItems.length - 1; i >= 0; i--) {
@@ -2316,6 +2460,9 @@ function animate() {
 
     // Inventory ground items + pickup tooltip
     updateInventory(world, controls.position, _dt);
+
+    // Hitbox visualiser — refresh each frame so boxes track moving NPCs/peers
+    if (hitboxVis) refreshHitboxHelpers();
 
     // Gun visibility: only in first-person, only if equipped
     if (currentWeaponKey) gunGroups[currentWeaponKey].visible = perspective.state === "first";
