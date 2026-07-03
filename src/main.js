@@ -286,47 +286,41 @@ const SKINS = {
     },
   },
 
-  // Ray — nervous, pale sweaty skin, cheap tracksuit
-  ray: {
+  // Chad — VC bro, Patagonia vest over white shirt, beige chinos
+  chad: {
     opts: {
-      head: { color: "#e8c9a0", faceColor: "#e8c9a0" },
-      body: { ...SLIM_BODY, color: "#1565c0" },
-      arms: { ...SLIM_ARMS, color: "#1565c0" },
-      legs: { ...SLIM_LEGS, color: "#0d47a1" },
+      head: { color: "#f0c899", faceColor: "#f0c899" },
+      body: { ...SLIM_BODY, color: "#5b8a5b" }, // Patagonia vest green
+      arms: { ...SLIM_ARMS, color: "#ffffff" }, // white shirt sleeves
+      legs: { ...SLIM_LEGS, color: "#d4b896" }, // beige chinos
     },
     paint(c) {
       c.head.paint("front", (ctx, cv) => {
         const w = cv.width, h = cv.height;
-        ctx.fillStyle = "#e8c9a0"; ctx.fillRect(0, 0, w, h);
-        // Thinning mousy hair
-        ctx.fillStyle = "#8b7355"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.18));
-        ctx.fillRect(0, 0, Math.ceil(w*0.08), Math.ceil(h*0.25)); // receding
-        ctx.fillRect(w - Math.ceil(w*0.08), 0, Math.ceil(w*0.08), Math.ceil(h*0.25));
-        ctx.fillStyle = "#5a3e28";
-        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
-        ctx.fillRect(Math.floor(w*0.64), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
-        // Nervous sweat sheen — lighter forehead
-        ctx.fillStyle = "rgba(255,240,200,0.3)";
-        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.18), Math.floor(w*0.6), Math.floor(h*0.12));
-        ctx.fillStyle = "#c08060";
-        ctx.fillRect(Math.floor(w*0.32), Math.floor(h*0.7), Math.floor(w*0.36), Math.floor(h*0.1));
+        ctx.fillStyle = "#f0c899"; ctx.fillRect(0, 0, w, h);
+        // Perfectly styled brown hair
+        ctx.fillStyle = "#8b5e3c"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.24));
+        // Clean shave, wide smile
+        ctx.fillStyle = "#c8956c";
+        ctx.fillRect(Math.floor(w*0.22), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
+        ctx.fillRect(Math.floor(w*0.62), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
+        // Big confident smile
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(Math.floor(w*0.25), Math.floor(h*0.68), Math.floor(w*0.5), Math.floor(h*0.1));
+        ctx.fillStyle = "#c8956c";
+        ctx.fillRect(Math.floor(w*0.25), Math.floor(h*0.66), Math.floor(w*0.5), Math.floor(h*0.04));
       });
-      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#8b7355"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#8b5e3c"; ctx.fillRect(0,0,cv.width,cv.height); });
+      // Patagonia vest (green) over white shirt — vest has no sleeves so body only
       c.body.paint("front", (ctx, cv) => {
         const w = cv.width, h = cv.height;
-        ctx.fillStyle = "#1565c0"; ctx.fillRect(0, 0, w, h);
-        // Tracksuit white stripe down each side
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, Math.ceil(w*0.1), h);
-        ctx.fillRect(w - Math.ceil(w*0.1), 0, Math.ceil(w*0.1), h);
-      });
-      c.leftArm.paint("all",  (ctx, cv) => {
-        ctx.fillStyle = "#1565c0"; ctx.fillRect(0,0,cv.width,cv.height);
-        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, Math.ceil(cv.width*0.15), cv.height);
-      });
-      c.rightArm.paint("all", (ctx, cv) => {
-        ctx.fillStyle = "#1565c0"; ctx.fillRect(0,0,cv.width,cv.height);
-        ctx.fillStyle = "#fff"; ctx.fillRect(cv.width - Math.ceil(cv.width*0.15), 0, Math.ceil(cv.width*0.15), cv.height);
+        ctx.fillStyle = "#5b8a5b"; ctx.fillRect(0, 0, w, h); // vest
+        // White shirt collar peeking out
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(Math.floor(w*0.36), 0, Math.floor(w*0.28), Math.floor(h*0.22));
+        // Vest zip line
+        ctx.fillStyle = "#4a7a4a";
+        ctx.fillRect(Math.floor(w*0.48), 0, 1, h);
       });
     },
   },
@@ -394,7 +388,12 @@ function makeCharacter(skinName) {
   world.add(c);
   lightShined.add(c);
   shadows.add(c);
-  if (skin) skinQueue.push({ c, skin });
+  if (skin) {
+    // Hide until textures are painted post-initialize to suppress the
+    // "Texture marked for update but no image data found" warning
+    c.visible = false;
+    skinQueue.push({ c, skin });
+  }
   return c;
 }
 
@@ -491,7 +490,7 @@ function astar(sx, sz, gx, gz) {
 }
 
 const THOMAS_WAYPOINTS = {
-  tent:    [ 3, 14.42, -14],
+  tent:    [ 6, 14.42, -16.5],
   road:    [ 0, 14.42,  -8],
   market:  [16, 14.42,  -8],
   shelter: [-8, 14.42,  -8],
@@ -513,8 +512,8 @@ function createNpc(id, name, spawnPos, skinName) {
 
   // HP bar — same style as peer hp bars
   const hpBar = document.createElement("div");
-  hpBar.className = "peer-hpbar npc-hpbar hidden";
-  hpBar.innerHTML = `<div class="phb-fill" style="width:100%;background:#2ecc71"></div>`;
+  hpBar.className = "npc-hpbar";
+  hpBar.innerHTML = `<div class="npc-hpbar-name">${name}</div><div class="npc-hpbar-track"><div class="phb-fill" style="width:100%"></div></div>`;
   document.body.appendChild(hpBar);
 
   npcs.set(id, {
@@ -538,15 +537,16 @@ function createNpc(id, name, spawnPos, skinName) {
   return npcs.get(id);
 }
 
-createNpc("thomas", "Thomas",  [ 3,  14.42, -14], "thomas");
+createNpc("thomas", "Thomas",  [ 6, 14.42, -16.5], "thomas");
+{ const t = npcs.get("thomas"); if (t) { t.character.set(t.pos.toArray(), [0, 0, -1]); t.character.update(); } }
 createNpc("marcus", "Marcus",  [-22, 14.42,   8], "marcus");
 createNpc("diane",  "Diane",   [20,  14.42,  -8], "diane");
-createNpc("ray",    "Ray",     [-8,  14.42,  -8], "ray");
+createNpc("chad",   "Chad",    [10,  14.42,  16], "chad");
 
 // NPC waypoint tables (must match Rust npc/defs.rs coords)
 const NPC_WAYPOINTS = {
   thomas: {
-    tent:    [ 3, 14.42, -14], road: [0, 14.42, -8],
+    tent:    [ 6, 14.42, -16.5], road: [0, 14.42, -8],
     market:  [16, 14.42,  -8], shelter: [-8, 14.42, -8],
     alley:   [ 3, 14.42, -14],
   },
@@ -556,9 +556,6 @@ const NPC_WAYPOINTS = {
   diane: {
     bodega: [20, 14.42, -8], doorway: [20, 14.42, -12], road: [0, 14.42, -8],
   },
-  ray: {
-    shop: [-8, 14.42, -8], doorway: [-8, 14.42, -12], alley: [-4, 14.42, -16],
-  },
 };
 
 // Home positions for auto-retreat
@@ -567,6 +564,7 @@ const NPC_HOME = {
   marcus: { x: -22, z:   8 },
   diane:  { x:  20, z:  -8 },
   ray:    { x:  -8, z:  -8 },
+  chad:   { x:  10, z:  16 },
 };
 
 const NPC_SPEED   = 0.025;
@@ -706,11 +704,12 @@ function updateNpcHpBar(npc) {
     fill.style.width = `${pct * 100}%`;
     fill.style.background = pct > 0.5 ? '#2ecc71' : pct > 0.25 ? '#f39c12' : '#e74c3c';
   }
-  npc.hpBar.classList.toggle('hidden', npc.hp >= npc.maxHp || npc.dead);
+  npc.hpBar.style.display = npc.dead ? 'none' : 'block';
 }
 
 function damageNpc(npcId, dmg, hitPoint) {
   const npc = npcs.get(npcId);
+  console.log(`damageNpc called: ${npcId} dmg=${dmg} npc=${!!npc} dead=${npc?.dead} hp=${npc?.hp}`);
   if (!npc || npc.dead) return;
 
   npc.hp = Math.max(0, npc.hp - dmg);
@@ -957,7 +956,6 @@ function sendNpcContext(npc) {
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 5);
 
-  if (nearby.length > 0) console.log(`[npc-context] ${npc.id} sees:`, nearby);
   fetch(`${NPC_API}/npc-context`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1333,13 +1331,14 @@ function checkVoiceProximity() {
   }
 }
 
-// ── Debug panel ───────────────────────────────────────────────────────────────
+// ── Debug panel (disabled) ────────────────────────────────────────────────────
 
 const debug = new VOXELIZE.Debug(document.body);
 debug.registerDisplay("Position",        controls, "voxel");
 debug.registerDisplay("Chunks loaded",   () => world.chunks?.loaded?.size   ?? "?");
 debug.registerDisplay("Chunks requested",() => world.chunks?.requested?.size ?? "?");
 debug.registerDisplay("Render radius",   world, "renderRadius");
+debug.dataWrapper.style.display = "none";
 
 // ── Health / PvP system ───────────────────────────────────────────────────────
 
@@ -1411,6 +1410,17 @@ function updatePeerHpBarPosition(peerId) {
   entry.barEl.style.display = "block";
   entry.barEl.style.left = ((worldPos.x * 0.5 + 0.5) * window.innerWidth) + "px";
   entry.barEl.style.top  = ((-worldPos.y * 0.5 + 0.5) * window.innerHeight) + "px";
+}
+
+// Hit marker
+const hitMarkerEl = document.createElement("div");
+hitMarkerEl.id = "hit-marker";
+document.body.appendChild(hitMarkerEl);
+let hitMarkerTimeout = null;
+function flashHitMarker() {
+  hitMarkerEl.classList.add("active");
+  clearTimeout(hitMarkerTimeout);
+  hitMarkerTimeout = setTimeout(() => hitMarkerEl.classList.remove("active"), 120);
 }
 
 // Damage flash
@@ -1934,27 +1944,35 @@ function fireRay(dir) {
     }
   });
 
-  // ── NPCs ──────────────────────────────────────────────────────────────────
+  // ── NPCs — closest-point-on-ray to NPC sphere ────────────────────────────
+  // Project NPC centre onto the ray, then check perpendicular distance.
   npcs.forEach((npc, npcId) => {
     if (npc.dead) return;
-    const totalH = npc.character.totalHeight ?? 1.31;
-    const halfW  = 0.45;
-    const footY  = npc.pos.y - NPC_EYE_Y;
-    const boxMin = new THREE.Vector3(npc.pos.x - halfW, footY,          npc.pos.z - halfW);
-    const boxMax = new THREE.Vector3(npc.pos.x + halfW, footY + totalH, npc.pos.z + halfW);
-    _hitBox.set(boxMin, boxMax);
-    const intersect = new THREE.Vector3();
-    const hit = _ray.intersectBox(_hitBox, intersect);
-    console.log(`[NPC ${npcId}] box Y ${footY.toFixed(2)}–${(footY+totalH).toFixed(2)} | ray hit: ${!!hit} | dist: ${hit ? origin.distanceTo(intersect).toFixed(2) : 'n/a'} | voxDist will be checked after`);
-    if (hit) {
-      const dist = origin.distanceTo(intersect);
-      if (dist < closestPeerDist) {
-        closestPeerDist = dist;
-        hitNpcId   = npcId;
-        hitPeerId  = null;
-        hitNpcPoint  = intersect.clone();
-        hitPeerPoint = null;
-      }
+    const footY   = npc.pos.y - NPC_EYE_Y;
+    const centerY = footY + (npc.character.totalHeight ?? 1.31) / 2;
+    const cx = npc.pos.x, cy = centerY, cz = npc.pos.z;
+
+    // t = projection of (NPC centre - origin) onto ray direction
+    const dx = cx - origin.x, dy = cy - origin.y, dz = cz - origin.z;
+    const t = dx * dir.x + dy * dir.y + dz * dir.z;
+    if (t < 0 || t > currentWeapon.range) return; // behind camera or out of range
+
+    // Closest point on ray to NPC centre
+    const cpx = origin.x + dir.x * t;
+    const cpy = origin.y + dir.y * t;
+    const cpz = origin.z + dir.z * t;
+
+    // Perpendicular distance from ray to NPC centre
+    const perpDist = Math.sqrt((cpx-cx)**2 + (cpy-cy)**2 + (cpz-cz)**2);
+    console.log(`[${npcId}] t=${t.toFixed(2)} perp=${perpDist.toFixed(3)} npc=(${cx.toFixed(1)},${cy.toFixed(1)},${cz.toFixed(1)}) origin=(${origin.x.toFixed(1)},${origin.y.toFixed(1)},${origin.z.toFixed(1)})`);
+    if (perpDist > 0.7) return;
+
+    if (t < closestPeerDist) {
+      closestPeerDist = t;
+      hitNpcId    = npcId;
+      hitPeerId   = null;
+      hitNpcPoint = new THREE.Vector3(cpx, cpy, cpz);
+      hitPeerPoint = null;
     }
   });
 
@@ -1972,6 +1990,7 @@ function fireRay(dir) {
     events.emit("player-hit", { target_id: hitPeerId, damage: dmg });
     spawnHitSparks(hitPeerPoint.toArray(), [0, 1, 0]);
     spawnTracer(origin.clone(), hitPeerPoint, 0xff3333);
+    flashHitMarker();
     const targetChar = peers.map.get(hitPeerId);
     const targetName = targetChar?.username || hitPeerId.slice(0, 6);
     showKillfeedEntry(`Hit ${targetName} -${dmg}hp`);
@@ -1984,6 +2003,7 @@ function fireRay(dir) {
     damageNpc(hitNpcId, dmg, hitNpcPoint);
     spawnHitSparks(hitNpcPoint.toArray(), [0, 1, 0]);
     spawnTracer(origin.clone(), hitNpcPoint, 0xff3333);
+    flashHitMarker();
     return;
   }
 
@@ -1994,8 +2014,10 @@ function fireRay(dir) {
   spawnTracer(origin.clone(), endPt, currentWeapon.tracerColor);
   if (voxHit) {
     spawnHitSparks(voxHit.point, voxHit.normal);
-    const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(voxHit.voxel);
-    world.updateVoxel(vox[0], vox[1], vox[2], 0);
+    try {
+      const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(voxHit.voxel);
+      world.updateVoxel(vox[0], vox[1], vox[2], 0);
+    } catch (_) {}
   }
 }
 
@@ -2407,7 +2429,7 @@ function animate() {
       if (!npc.dead) updateNpcMovement(npc);
       updateBubblePosition(npc);
       // NPC HP bar position
-      if (npc.hpBar && !npc.hpBar.classList.contains('hidden')) {
+      if (npc.hpBar && !npc.dead) {
         const wp = npc.pos.clone();
         wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.25;
         wp.project(camera);
@@ -2508,9 +2530,12 @@ async function start() {
   await network.join("tutorial");
   await world.initialize();
 
-  // Paint skins now that WebGL context is active and materials compiled
-  for (const { c, skin } of skinQueue) paintSkin(c, skin);
+  // Paint skins now that WebGL context is active — reveal each character after textures are ready
+  for (const { c, skin } of skinQueue) { paintSkin(c, skin); c.visible = true; }
   skinQueue.length = 0;
+
+  // Show all NPC health bars from the start
+  for (const npc of npcs.values()) updateNpcHpBar(npc);
 
   world.renderRadius = 8;
 
@@ -2553,7 +2578,7 @@ async function start() {
     },
     {
       name: "night",
-      color: { top: new THREE.Color("#0a0a1a"), middle: new THREE.Color("#0d0d22"), bottom: new THREE.Color("#111122") },
+      color: { top: new THREE.Color("#0d1220"), middle: new THREE.Color("#111828"), bottom: new THREE.Color("#1a2035") },
       skyOffset: 0.1, voidOffset: 0.6, start: 0.75,
     },
   ]);

@@ -14,7 +14,7 @@ mod http;
 mod health;
 
 use npc::bedrock::AwsCreds;
-use npc::defs::{THOMAS, MARCUS, DIANE, RAY};
+use npc::defs::{THOMAS, MARCUS, DIANE, CHAD};
 use npc::types::{NpcDef, NpcState, fallback_action};
 use npc::tick::run_npc_tick;
 use http::types::{NpcMap, PlayerInfo, SharedPlayers};
@@ -63,7 +63,7 @@ async fn main() -> std::io::Result<()> {
         .preload(true)
         .preload_radius(4)
         .time_per_day(24000)
-        .default_time(12000.0)
+        .default_time(19992.0)
         .build();
 
     let mut world = World::new("tutorial", &config);
@@ -99,7 +99,7 @@ async fn main() -> std::io::Result<()> {
     let thomas_state = make_npc(&THOMAS);
     let marcus_state = make_npc(&MARCUS);
     let diane_state  = make_npc(&DIANE);
-    let ray_state    = make_npc(&RAY);
+    let chad_state   = make_npc(&CHAD);
 
     // ── AWS / NPC brain ───────────────────────────────────────────────────────
     let npc_enabled = std::env::var("AWS_ACCESS_KEY_ID").is_ok()
@@ -129,7 +129,7 @@ async fn main() -> std::io::Result<()> {
             (&THOMAS, Arc::clone(&thomas_state)),
             (&MARCUS, Arc::clone(&marcus_state)),
             (&DIANE,  Arc::clone(&diane_state)),
-            (&RAY,    Arc::clone(&ray_state)),
+            (&CHAD,   Arc::clone(&chad_state)),
         ] {
             tokio::spawn(run_npc_tick(
                 def, state,
@@ -146,7 +146,7 @@ async fn main() -> std::io::Result<()> {
         m.insert("thomas".to_string(), Arc::clone(&thomas_state));
         m.insert("marcus".to_string(), Arc::clone(&marcus_state));
         m.insert("diane".to_string(),  Arc::clone(&diane_state));
-        m.insert("ray".to_string(),    Arc::clone(&ray_state));
+        m.insert("chad".to_string(),   Arc::clone(&chad_state));
         m
     }));
 

@@ -3,7 +3,7 @@ use async_stream::stream;
 use tokio::sync::broadcast;
 
 use super::types::*;
-use crate::npc::defs::{THOMAS, MARCUS, DIANE, RAY};
+use crate::npc::defs::{THOMAS, MARCUS, DIANE, RAY, CHAD};
 use crate::npc::types::NpcDef;
 
 pub async fn handle_options() -> HttpResponse {
@@ -140,10 +140,12 @@ pub async fn handle_npc_voice(
             style: "Tired but sharp bodega owner. Impatient but kind. 1-2 sentences." },
         "ray"    => VoiceCfg { el_voice_id: "VR6AewLTigWG4xSOukaG",
             style: "Weary pawnshop owner. Dry, deadpan. 1-2 sentences." },
+        "chad"   => VoiceCfg { el_voice_id: "N2lVS1w4EtoT3dr4eOWO", // "Callum" — upbeat young male
+            style: "Fast, breathless, over-eager startup bro. Drops buzzwords. Laughs at own jokes. 1-2 sentences max." },
         _        => VoiceCfg { el_voice_id: "21m00Tcm4TlvDq8ikWAM", style: "" },
     };
 
-    let defs: &[&NpcDef] = &[&THOMAS, &MARCUS, &DIANE, &RAY];
+    let defs: &[&NpcDef] = &[&THOMAS, &MARCUS, &DIANE, &RAY, &CHAD];
     let personality = {
         let map = npc_map.lock().unwrap();
         if map.contains_key(&npc_id) {
