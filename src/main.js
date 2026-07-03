@@ -704,9 +704,8 @@ function updateNpcHpBar(npc) {
     fill.style.width = `${pct * 100}%`;
     fill.style.background = pct > 0.5 ? '#2ecc71' : pct > 0.25 ? '#f39c12' : '#e74c3c';
   }
-  // Only show bar when in-game, damaged, and alive
-  const shouldShow = !npc.dead && npc.hp < npc.maxHp && controls.isLocked;
-  npc.hpBar.style.display = shouldShow ? 'block' : 'none';
+  npc.hpBar.classList.remove('hidden');
+  npc.hpBar.style.display = (!npc.dead && npc.hp < npc.maxHp && controls.isLocked) ? 'block' : 'none';
 }
 
 function damageNpc(npcId, dmg, hitPoint) {
@@ -1829,9 +1828,13 @@ const _hitBox = new THREE.Box3();
 const _peerWorldPos = new THREE.Vector3();
 
 function fireRay(dir) {
-  // Ray origin = camera/eye position for hit detection
   const origin = new THREE.Vector3();
-  controls.object.getWorldPosition(origin);
+  camera.getWorldPosition(origin);
+  console.log(`fireRay origin=(${origin.x.toFixed(1)},${origin.y.toFixed(1)},${origin.z.toFixed(1)}) dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)})`);
+  for (const [id, npc] of npcs) {
+    const footY = npc.pos.y - NPC_EYE_Y;
+    console.log(`  npc[${id}] pos=(${npc.pos.x.toFixed(1)},${npc.pos.y.toFixed(1)},${npc.pos.z.toFixed(1)}) foot=${footY.toFixed(1)} dead=${npc.dead}`);
+  }
 
   // Tracer origin = gun muzzle world position (visual only)
   const muzzleOrigin = origin.clone();
@@ -1859,15 +1862,15 @@ function fireRay(dir) {
       new THREE.Vector3(_peerWorldPos.x + halfW, _peerWorldPos.y + (totalH - eyeH), _peerWorldPos.z + halfW),
     );
     const intersect = new THREE.Vector3();
-    if (_ray.intersectBox(_hitBox, intersect)) {
-      const dist = origin.distanceTo(intersect);
-      if (dist < closestPeerDist) {
-        closestPeerDist = dist;
-        hitPeerId = peerId;
-        hitNpcId  = null;
-        hitPeerPoint = intersect.clone();
-        hitNpcPoint  = null;
-      }
+    const peerHit = _ray.intersectBox(_hitBox, intersect);
+    if (!peerHit && !_hitBox.containsPoint(origin)) return;
+    const dist = peerHit ? origin.distanceTo(intersect) : 0;
+    if (dist < closestPeerDist) {
+      closestPeerDist = dist;
+      hitPeerId = peerId;
+      hitNpcId  = null;
+      hitPeerPoint = peerHit ? intersect.clone() : _peerWorldPos.clone();
+      hitNpcPoint  = null;
     }
   });
 
@@ -1876,20 +1879,22 @@ function fireRay(dir) {
     if (npc.dead) return;
     const footY = npc.pos.y - NPC_EYE_Y;
     const totalH = npc.character.totalHeight ?? 1.31;
-    const halfW = 0.65; // generous hitbox
+    const halfW = 0.65;
     const npcBox = new THREE.Box3(
       new THREE.Vector3(npc.pos.x - halfW, footY - 0.2,          npc.pos.z - halfW),
       new THREE.Vector3(npc.pos.x + halfW, footY + totalH + 0.2, npc.pos.z + halfW),
     );
     const intersect = new THREE.Vector3();
-    if (!_ray.intersectBox(npcBox, intersect)) return;
-    const t = origin.distanceTo(intersect);
+    // intersectBox returns null when origin is inside box — handle both cases
+    const hit = _ray.intersectBox(npcBox, intersect);
+    if (!hit && !npcBox.containsPoint(origin)) return;
+    const t = hit ? origin.distanceTo(intersect) : 0;
 
     if (t < closestPeerDist) {
       closestPeerDist = t;
       hitNpcId    = npcId;
       hitPeerId   = null;
-      hitNpcPoint = intersect.clone();
+      hitNpcPoint = hit ? intersect.clone() : new THREE.Vector3(npc.pos.x, npc.pos.y, npc.pos.z);
       hitPeerPoint = null;
     }
   });
@@ -1932,10 +1937,6 @@ function fireRay(dir) {
   spawnTracer(muzzleOrigin.clone(), endPt, currentWeapon.tracerColor);
   if (voxHit) {
     spawnHitSparks(voxHit.point, voxHit.normal);
-    try {
-      const vox = VOXELIZE.ChunkUtils.mapWorldToVoxel(voxHit.voxel);
-      world.updateVoxel(vox[0], vox[1], vox[2], 0);
-    } catch (_) {}
   }
 }
 
@@ -2033,13 +2034,13 @@ function fireWeapon() {
     weapon: currentWeaponKey,
   });
 
+  // Sample aim direction from controls object (has full yaw+pitch)
+  const base = controls.getDirection();
+
   playFireAnimation(currentWeaponKey);
   spawnMuzzleFlash();
   applyRecoil(currentWeapon.recoil);
   flashCrosshair();
-
-  const base = new THREE.Vector3();
-  controls.object.getWorldDirection(base);
 
   if (currentWeapon.pellets === 1) {
     fireRay(base);
@@ -2346,13 +2347,14 @@ function animate() {
     for (const npc of npcs.values()) {
       if (!npc.dead) updateNpcMovement(npc);
       updateBubblePosition(npc);
-      // NPC HP bar — position it, visibility is owned by updateNpcHpBar
+      // NPC HP bar — position update, visibility set by updateNpcHpBar
       if (npc.hpBar && !npc.dead && npc.hp < npc.maxHp && controls.isLocked) {
         const wp = npc.pos.clone();
-        wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.25;
+        wp.y += (npc.character.totalHeight ?? 1.31) - NPC_EYE_Y + 0.4;
         wp.project(camera);
-        if (wp.z > 1) { npc.hpBar.style.display = 'none'; }
-        else {
+        if (wp.z > 1) {
+          npc.hpBar.style.display = 'none';
+        } else {
           npc.hpBar.style.display = 'block';
           npc.hpBar.style.left = ((wp.x * 0.5 + 0.5) * window.innerWidth) + 'px';
           npc.hpBar.style.top  = ((-wp.y * 0.5 + 0.5) * window.innerHeight) + 'px';
