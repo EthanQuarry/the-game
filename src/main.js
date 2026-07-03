@@ -1935,19 +1935,18 @@ function fireRay(dir) {
   });
 
   // ── NPCs ──────────────────────────────────────────────────────────────────
-  // npc.pos.y is set by npcGroundY() which returns ground + NPC_EYE_Y (eye level).
-  // So feet = pos.y - NPC_EYE_Y, head top = feet + totalHeight.
   npcs.forEach((npc, npcId) => {
     if (npc.dead) return;
     const totalH = npc.character.totalHeight ?? 1.31;
     const halfW  = 0.45;
     const footY  = npc.pos.y - NPC_EYE_Y;
-    _hitBox.set(
-      new THREE.Vector3(npc.pos.x - halfW, footY,          npc.pos.z - halfW),
-      new THREE.Vector3(npc.pos.x + halfW, footY + totalH, npc.pos.z + halfW),
-    );
+    const boxMin = new THREE.Vector3(npc.pos.x - halfW, footY,          npc.pos.z - halfW);
+    const boxMax = new THREE.Vector3(npc.pos.x + halfW, footY + totalH, npc.pos.z + halfW);
+    _hitBox.set(boxMin, boxMax);
     const intersect = new THREE.Vector3();
-    if (_ray.intersectBox(_hitBox, intersect)) {
+    const hit = _ray.intersectBox(_hitBox, intersect);
+    console.log(`[NPC ${npcId}] box Y ${footY.toFixed(2)}–${(footY+totalH).toFixed(2)} | ray hit: ${!!hit} | dist: ${hit ? origin.distanceTo(intersect).toFixed(2) : 'n/a'} | voxDist will be checked after`);
+    if (hit) {
       const dist = origin.distanceTo(intersect);
       if (dist < closestPeerDist) {
         closestPeerDist = dist;
