@@ -212,6 +212,125 @@ const SKINS = {
       c.rightLeg.paint("bottom", (ctx, cv) => { ctx.fillStyle = "#111"; ctx.fillRect(0,0,cv.width,cv.height); });
     },
   },
+  // Marcus — cold, calculating, dark skin, black jacket
+  marcus: {
+    opts: {
+      head: { color: "#3d1a08", faceColor: "#3d1a08" },
+      body: { ...SLIM_BODY, color: "#1a1a1a" },
+      arms: { ...SLIM_ARMS, color: "#1a1a1a" },
+      legs: { ...SLIM_LEGS, color: "#111111" },
+    },
+    paint(c) {
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#3d1a08"; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#1a0a02"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.2)); // close-cropped hair
+        ctx.fillStyle = "#0d0d0d";
+        ctx.fillRect(Math.floor(w*0.18), Math.floor(h*0.32), Math.floor(w*0.2), Math.floor(h*0.2));
+        ctx.fillRect(Math.floor(w*0.62), Math.floor(h*0.32), Math.floor(w*0.2), Math.floor(h*0.2));
+        // Flat expression
+        ctx.fillStyle = "#2a0e04";
+        ctx.fillRect(Math.floor(w*0.32), Math.floor(h*0.72), Math.floor(w*0.36), Math.floor(h*0.08));
+      });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#1a0a02"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, w, h);
+        // Jacket lapels
+        ctx.fillStyle = "#2a2a2a";
+        ctx.fillRect(Math.floor(w*0.3), 0, Math.floor(w*0.18), Math.floor(h*0.5));
+        ctx.fillRect(Math.floor(w*0.52), 0, Math.floor(w*0.18), Math.floor(h*0.5));
+        // White shirt underneath
+        ctx.fillStyle = "#ddd";
+        ctx.fillRect(Math.floor(w*0.42), Math.floor(h*0.05), Math.floor(w*0.16), Math.floor(h*0.4));
+      });
+    },
+  },
+
+  // Diane — tired mid-50s, olive skin, apron colours
+  diane: {
+    opts: {
+      head: { color: "#c8956c", faceColor: "#c8956c" },
+      body: { ...SLIM_BODY, color: "#4a3728" },
+      arms: { ...SLIM_ARMS, color: "#4a3728" },
+      legs: { ...SLIM_LEGS, color: "#2e2010" },
+    },
+    paint(c) {
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#c8956c"; ctx.fillRect(0, 0, w, h);
+        // Greying hair
+        ctx.fillStyle = "#6b5a4e"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.28));
+        ctx.fillStyle = "#888"; // grey streaks
+        ctx.fillRect(Math.floor(w*0.2), 0, 2, Math.ceil(h*0.28));
+        ctx.fillRect(Math.floor(w*0.7), 0, 2, Math.ceil(h*0.28));
+        ctx.fillStyle = "#5a3020";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.32), Math.floor(w*0.18), Math.floor(h*0.18));
+        ctx.fillRect(Math.floor(w*0.62), Math.floor(h*0.32), Math.floor(w*0.18), Math.floor(h*0.18));
+        // Tired lines under eyes
+        ctx.fillStyle = "#a06040";
+        ctx.fillRect(Math.floor(w*0.18), Math.floor(h*0.5), Math.floor(w*0.22), 1);
+        ctx.fillRect(Math.floor(w*0.6), Math.floor(h*0.5), Math.floor(w*0.22), 1);
+        ctx.fillStyle = "#8b4513";
+        ctx.fillRect(Math.floor(w*0.28), Math.floor(h*0.7), Math.floor(w*0.44), Math.floor(h*0.1));
+      });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#6b5a4e"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#4a3728"; ctx.fillRect(0, 0, w, h);
+        // Apron straps over shirt
+        ctx.fillStyle = "#8b6914";
+        ctx.fillRect(Math.floor(w*0.3), 0, Math.floor(w*0.12), h);
+        ctx.fillRect(Math.floor(w*0.58), 0, Math.floor(w*0.12), h);
+      });
+    },
+  },
+
+  // Ray — nervous, pale sweaty skin, cheap tracksuit
+  ray: {
+    opts: {
+      head: { color: "#e8c9a0", faceColor: "#e8c9a0" },
+      body: { ...SLIM_BODY, color: "#1565c0" },
+      arms: { ...SLIM_ARMS, color: "#1565c0" },
+      legs: { ...SLIM_LEGS, color: "#0d47a1" },
+    },
+    paint(c) {
+      c.head.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#e8c9a0"; ctx.fillRect(0, 0, w, h);
+        // Thinning mousy hair
+        ctx.fillStyle = "#8b7355"; ctx.fillRect(0, 0, w, Math.ceil(h * 0.18));
+        ctx.fillRect(0, 0, Math.ceil(w*0.08), Math.ceil(h*0.25)); // receding
+        ctx.fillRect(w - Math.ceil(w*0.08), 0, Math.ceil(w*0.08), Math.ceil(h*0.25));
+        ctx.fillStyle = "#5a3e28";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
+        ctx.fillRect(Math.floor(w*0.64), Math.floor(h*0.32), Math.floor(w*0.16), Math.floor(h*0.18));
+        // Nervous sweat sheen — lighter forehead
+        ctx.fillStyle = "rgba(255,240,200,0.3)";
+        ctx.fillRect(Math.floor(w*0.2), Math.floor(h*0.18), Math.floor(w*0.6), Math.floor(h*0.12));
+        ctx.fillStyle = "#c08060";
+        ctx.fillRect(Math.floor(w*0.32), Math.floor(h*0.7), Math.floor(w*0.36), Math.floor(h*0.1));
+      });
+      c.head.paint("top", (ctx, cv) => { ctx.fillStyle = "#8b7355"; ctx.fillRect(0,0,cv.width,cv.height); });
+      c.body.paint("front", (ctx, cv) => {
+        const w = cv.width, h = cv.height;
+        ctx.fillStyle = "#1565c0"; ctx.fillRect(0, 0, w, h);
+        // Tracksuit white stripe down each side
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, Math.ceil(w*0.1), h);
+        ctx.fillRect(w - Math.ceil(w*0.1), 0, Math.ceil(w*0.1), h);
+      });
+      c.leftArm.paint("all",  (ctx, cv) => {
+        ctx.fillStyle = "#1565c0"; ctx.fillRect(0,0,cv.width,cv.height);
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, Math.ceil(cv.width*0.15), cv.height);
+      });
+      c.rightArm.paint("all", (ctx, cv) => {
+        ctx.fillStyle = "#1565c0"; ctx.fillRect(0,0,cv.width,cv.height);
+        ctx.fillStyle = "#fff"; ctx.fillRect(cv.width - Math.ceil(cv.width*0.15), 0, Math.ceil(cv.width*0.15), cv.height);
+      });
+    },
+  },
+
   homeless: {
     opts: {
       head: { color: "#8d5524", faceColor: "#8d5524" },
@@ -392,6 +511,12 @@ function createNpc(id, name, spawnPos, skinName) {
   bubble.innerHTML = `<div class="npc-name">${name}</div><div class="bubble-text"></div>`;
   document.body.appendChild(bubble);
 
+  // HP bar — same style as peer hp bars
+  const hpBar = document.createElement("div");
+  hpBar.className = "peer-hpbar npc-hpbar hidden";
+  hpBar.innerHTML = `<div class="phb-fill" style="width:100%;background:#2ecc71"></div>`;
+  document.body.appendChild(hpBar);
+
   npcs.set(id, {
     character, id, name,
     pos: new THREE.Vector3(...spawnPos),
@@ -403,6 +528,12 @@ function createNpc(id, name, spawnPos, skinName) {
     heldItem: null,
     heldItemMesh: null,
     lastContextSent: 0,
+    // health
+    hp: 100, maxHp: 100,
+    dead: false,
+    hpBar,
+    hpBarTimeout: null,
+    deathAnim: null,   // { startTime, startRot }
   });
   return npcs.get(id);
 }
@@ -876,6 +1007,7 @@ const dialogText  = document.getElementById("dialog-text");
 const dialogInput = document.getElementById("dialog-input");
 const giveBtn        = document.getElementById("give-coin-btn");
 const giveAmountSel  = document.getElementById("give-coin-amount");
+document.getElementById("dialog-close").addEventListener("click", closeDialog);
 
 function openDialog(npcId) {
   const npc = npcs.get(npcId); if (!npc) return;

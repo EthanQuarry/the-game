@@ -158,6 +158,16 @@ html, body { height: 100%; overflow: hidden; }
   z-index: 40; font-family: sans-serif; color: #eee;
 }
 #dialog.hidden { display: none; }
+
+#dialog-close {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: none; cursor: pointer;
+  color: rgba(255,255,255,0.4); font-size: 1rem; line-height: 1;
+  padding: 2px 4px; border-radius: 3px;
+  transition: color 0.15s;
+}
+#dialog-close:hover { color: rgba(255,255,255,0.9); }
+
 #dialog-name { font-size: 0.75rem; color: #8ecfff; font-weight: bold; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
 #dialog-text { font-size: 0.9rem; min-height: 2.2em; margin-bottom: 10px; line-height: 1.4; color: #ddd; }
 #dialog-text.thinking { color: #888; font-style: italic; }

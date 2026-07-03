@@ -1,20 +1,20 @@
 use super::types::{NpcDef};
 
-// NPC spawn coordinates use y ≈ 12.42 (ground y=12 + flatland height + eye offset)
+// NPC spawn coordinates use y ≈ 14.42 (ground y=12 + flatland height + eye offset)
 // Updated for 7×7 city layout.
 
 pub static THOMAS_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
-    ("tent",    ( 3.0, 12.42, -22.0)),
-    ("road",    ( 0.0, 12.42,  -8.0)),
-    ("market",  (16.0, 12.42,  -8.0)),
-    ("shelter", (-8.0, 12.42,  -8.0)),
-    ("alley",   ( 3.0, 12.42, -14.0)),
+    ("tent",    ( 3.0, 14.42, -22.0)),
+    ("road",    ( 0.0, 14.42,  -8.0)),
+    ("market",  (16.0, 14.42,  -8.0)),
+    ("shelter", (-8.0, 14.42,  -8.0)),
+    ("alley",   ( 3.0, 14.42, -14.0)),
 ];
 
 pub static THOMAS: NpcDef = NpcDef {
     id: "thomas",
     name: "Thomas",
-    spawn: (3.0, 12.42, -22.0),
+    spawn: (3.0, 14.42, -22.0),
     personality_prompt: "You are Thomas, a homeless man living rough in a walled voxel city. Drinks too much, struggling.\n\n\
 PERSONALITY: Weathered and guarded, but not without humanity. Doesn't trust easily.\n\
 Swears when stressed but not constantly. Has dry humour that surfaces when comfortable.\n\
@@ -42,15 +42,15 @@ JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|m
 };
 
 pub static MARCUS_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
-    ("stairwell", (-22.0, 12.42, 8.0)),
-    ("corner",    (-10.0, 12.42, 0.0)),
-    ("road",      (  0.0, 12.42, 0.0)),
+    ("stairwell", (-22.0, 14.42, 8.0)),
+    ("corner",    (-10.0, 14.42, 0.0)),
+    ("road",      (  0.0, 14.42, 0.0)),
 ];
 
 pub static MARCUS: NpcDef = NpcDef {
     id: "marcus",
     name: "Marcus",
-    spawn: (-22.0, 12.42, 8.0),
+    spawn: (-22.0, 14.42, 8.0),
     personality_prompt: "You are Marcus, a drug dealer in a walled voxel city.\n\n\
 PERSONALITY: Cold, controlled, always thinking two moves ahead. Never loses his temper.\n\
 Speaks in short declarative sentences. No small talk. Every interaction is a transaction.\n\
@@ -68,15 +68,15 @@ JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|m
 };
 
 pub static DIANE_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
-    ("bodega",   (20.0, 12.42, -8.0)),
-    ("doorway",  (20.0, 12.42, -12.0)),
-    ("road",     ( 0.0, 12.42,  -8.0)),
+    ("bodega",   (20.0, 14.42, -8.0)),
+    ("doorway",  (20.0, 14.42, -12.0)),
+    ("road",     ( 0.0, 14.42,  -8.0)),
 ];
 
 pub static DIANE: NpcDef = NpcDef {
     id: "diane",
     name: "Diane",
-    spawn: (20.0, 12.42, -8.0),
+    spawn: (20.0, 14.42, -8.0),
     personality_prompt: "You are Diane, owner of a small bodega in a rough walled city.\n\n\
 PERSONALITY: Mid-50s, seen everything, judges almost nothing. Direct and practical.\n\
 Dry warmth — she'll help but isn't naive. Tired but not defeated.\n\n\
@@ -93,15 +93,15 @@ JSON only: {\"thought\":\"<5w>\",\"action\":{\"type\":\"speak|move_to_waypoint|i
 };
 
 pub static RAY_WAYPOINTS: &[(&str, (f32, f32, f32))] = &[
-    ("shop",    (-8.0, 12.42,  -8.0)),
-    ("doorway", (-8.0, 12.42, -12.0)),
-    ("alley",   (-4.0, 12.42, -16.0)),
+    ("shop",    (-8.0, 14.42,  -8.0)),
+    ("doorway", (-8.0, 14.42, -12.0)),
+    ("alley",   (-4.0, 14.42, -16.0)),
 ];
 
 pub static RAY: NpcDef = NpcDef {
     id: "ray",
     name: "Ray",
-    spawn: (-8.0, 12.42, -8.0),
+    spawn: (-8.0, 14.42, -8.0),
     personality_prompt: "You are Ray, who runs a pawnshop in a rough walled city.\n\n\
 PERSONALITY: Anxious, fast-talking, always angling a deal. Nervous laugh at wrong moments.\n\
 Not a bad person — just in over his head.\n\n\
