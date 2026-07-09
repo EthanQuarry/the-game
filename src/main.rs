@@ -14,7 +14,7 @@ mod http;
 mod health;
 
 use npc::bedrock::AwsCreds;
-use npc::defs::{THOMAS, MARCUS, DIANE, CHAD};
+use npc::defs::{THOMAS, MARCUS, DIANE, CHAD, RAY};
 use npc::types::{NpcDef, NpcState, fallback_action};
 use npc::tick::run_npc_tick;
 use http::types::{NpcMap, PlayerInfo, SharedPlayers};
@@ -95,12 +95,14 @@ async fn main() -> std::io::Result<()> {
         held_item: None,
         last_autonomous_tick: std::time::Instant::now(),
         greeted_players: std::collections::HashSet::new(),
+        trust_level: HashMap::new(),
     }));
 
     let thomas_state = make_npc(&THOMAS);
     let marcus_state = make_npc(&MARCUS);
     let diane_state  = make_npc(&DIANE);
     let chad_state   = make_npc(&CHAD);
+    let ray_state    = make_npc(&RAY);
 
     // ── AWS / NPC brain ───────────────────────────────────────────────────────
     let npc_enabled = std::env::var("AWS_ACCESS_KEY_ID").is_ok()
@@ -131,6 +133,7 @@ async fn main() -> std::io::Result<()> {
             (&MARCUS, Arc::clone(&marcus_state)),
             (&DIANE,  Arc::clone(&diane_state)),
             (&CHAD,   Arc::clone(&chad_state)),
+            (&RAY,    Arc::clone(&ray_state)),
         ] {
             tokio::spawn(run_npc_tick(
                 def, state,
@@ -148,6 +151,7 @@ async fn main() -> std::io::Result<()> {
         m.insert("marcus".to_string(), Arc::clone(&marcus_state));
         m.insert("diane".to_string(),  Arc::clone(&diane_state));
         m.insert("chad".to_string(),   Arc::clone(&chad_state));
+        m.insert("ray".to_string(),    Arc::clone(&ray_state));
         m
     }));
 

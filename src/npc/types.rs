@@ -36,6 +36,8 @@ pub struct NpcState {
     pub last_autonomous_tick: std::time::Instant,
     // Players who have already been greeted — don't greet again until they leave and return
     pub greeted_players: std::collections::HashSet<String>,
+    // Trust level reported by the client (0–100)
+    pub trust_level: HashMap<String, i32>,
 }
 
 pub struct NpcDef {
@@ -45,7 +47,9 @@ pub struct NpcDef {
     pub personality_prompt: &'static str,
     pub waypoints: &'static [(&'static str, (f32, f32, f32))],
     pub nearby_radius: f32,
+    #[allow(dead_code)]
     pub tick_rate_near_ms: u64,
+    #[allow(dead_code)]
     pub tick_rate_far_ms: u64,
 }
 

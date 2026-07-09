@@ -6,6 +6,36 @@ import * as VOXELIZE from "@voxelize/core";
 // `makeMesh` returns a Three.js Object3D used for ground entities and slot previews.
 
 export const ITEM_DEFS = {
+  granola_bar: {
+    name: "Granola Bar",
+    maxStack: 10,
+    makeData: () => ({}),
+    makeMesh: () => {
+      const g = new THREE.Group();
+      const bar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.04, 0.08),
+        new THREE.MeshLambertMaterial({ color: 0xc8a060 })
+      );
+      g.add(bar);
+      return g;
+    },
+    use: (healFn) => healFn(20),
+  },
+  water: {
+    name: "Water",
+    maxStack: 10,
+    makeData: () => ({}),
+    makeMesh: () => {
+      const g = new THREE.Group();
+      const bottle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.04, 0.14, 8),
+        new THREE.MeshLambertMaterial({ color: 0x88ccff, transparent: true, opacity: 0.8 })
+      );
+      g.add(bottle);
+      return g;
+    },
+    use: (healFn) => healFn(10),
+  },
   pistol: {
     name: "Pistol",
     maxStack: 1,
@@ -68,6 +98,25 @@ export const ITEM_DEFS = {
         new THREE.MeshLambertMaterial({ color: 0xd4a017 })
       );
       return mesh;
+    },
+  },
+  clue_drive: {
+    name: "Prototype Drive",
+    maxStack: 1,
+    makeData: () => ({ id: 'clue_drive' }),
+    makeMesh: () => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.06, 0.32),
+        new THREE.MeshLambertMaterial({ color: 0xffd700 })
+      );
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(0.10, 0.05, 0.10),
+        new THREE.MeshLambertMaterial({ color: 0xaaaaaa })
+      );
+      cap.position.z = -0.18;
+      g.add(body, cap);
+      return g;
     },
   },
 };

@@ -10,6 +10,7 @@ import {
 } from "./inventory.js";
 import {
   playPistolShot, playShotgunShot, playEmptyClick, playReload, playDistantShot,
+  startAmbience, updateAtmosphere, playFootstep,
 } from "./audio.js";
 
 // ── Renderer & Camera ─────────────────────────────────────────────────────────
@@ -450,8 +451,15 @@ const _https = window.location.protocol === 'https:';
 const VOXELIZE_SERVER = _https ? window.location.origin : `http://${_host}:4000`;
 const NPC_API         = _https ? `${window.location.origin}/npc` : `http://${_host}:4001`;
 
+// ── NPC Trust / Reputation ────────────────────────────────────────────────────
 
+const npcTrust = { thomas: 30, marcus: 30, diane: 30, ray: 30, chad: 50 };
 
+function modifyTrust(npcId, delta) {
+  npcTrust[npcId] = Math.max(0, Math.min(100, (npcTrust[npcId] || 30) + delta));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const playerId = Math.random().toString(36).slice(2, 10);
 const RANDOM_NAMES = ["Ghost","Viper","Rook","Cipher","Shade","Wraith","Drifter","Nomad","Patch","Static","Flint","Sable","Echo","Sparrow","Jinx"];
@@ -499,15 +507,21 @@ function astar(sx, sz, gx, gz) {
   return [];
 }
 
-const THOMAS_WAYPOINTS = {
-  tent:    [ 6, 14.42, -16.5],
-  road:    [ 0, 14.42,  -8],
-  market:  [16, 14.42,  -8],
-  shelter: [-8, 14.42,  -8],
-  alley:   [ 3, 14.42, -14],
-};
-
 const npcs = new Map();
+
+// ── Atmosphere state ──────────────────────────────────────────────────────────
+let lastCombatTime = 0;           // performance.now() of last shot/hit — drives vignette
+let _footstepTimer = 0;           // accumulates dt between steps
+const FOOTSTEP_INTERVAL = 0.48;   // seconds between steps at full sprint speed
+
+// Per-NPC accent colors for radar blips + dialog portraits
+const NPC_COLORS = {
+  thomas: { bg: "#d4820a", text: "#fff" },   // amber
+  marcus: { bg: "#b71c1c", text: "#fff" },   // deep red
+  diane:  { bg: "#00796b", text: "#fff" },   // teal
+  ray:    { bg: "#f9a825", text: "#000" },   // yellow
+  chad:   { bg: "#e65100", text: "#fff" },   // orange
+};
 
 function createNpc(id, name, spawnPos, skinName) {
   const character = makeCharacter(skinName || "homeless");
@@ -542,7 +556,6 @@ function createNpc(id, name, spawnPos, skinName) {
     dead: false,
     hpBar,
     hpBarTimeout: null,
-    deathAnim: null,   // { startTime, startRot }
   });
   return npcs.get(id);
 }
@@ -552,6 +565,7 @@ createNpc("thomas", "Thomas",  [ 6, 14.42, -16.5], "thomas");
 createNpc("marcus", "Marcus",  [-22, 14.42,   8], "marcus");
 createNpc("diane",  "Diane",   [20,  14.42,  -8], "diane");
 createNpc("chad",   "Chad",    [10,  14.42,  16], "chad");
+createNpc("ray",    "Ray",     [-8,  14.42,  -8], "homeless");
 
 // NPC waypoint tables (must match Rust npc/defs.rs coords)
 const NPC_WAYPOINTS = {
@@ -566,6 +580,12 @@ const NPC_WAYPOINTS = {
   diane: {
     bodega: [20, 14.42, -8], doorway: [20, 14.42, -12], road: [0, 14.42, -8],
   },
+  ray: {
+    shop: [-8, 14.42, -8], doorway: [-8, 14.42, -12], alley: [-4, 14.42, -16],
+  },
+  chad: {
+    bench: [10, 14.42, 16], corner: [0, 14.42, 16], road: [0, 14.42, 0], cafe: [16, 14.42, 16],
+  },
 };
 
 // Home positions for auto-retreat
@@ -578,6 +598,7 @@ const NPC_HOME = {
 };
 
 const NPC_SPEED   = 0.025;
+const NPC_WOUNDED_SPEED_MULT = 0.6; // 60% speed when wounded
 // Eye height above ground for NPCs with slim proportions (legs+body+neckGap+head/2 * S=0.9)
 const NPC_EYE_Y = 1.42;
 
@@ -610,7 +631,14 @@ function updateNpcMovement(npc) {
     return;
   }
 
-  // ── Auto-retreat if too far from home ───────────────────────────────────
+  // ── Wanted: nearby NPCs flee when player has wanted level ───────────────
+  if (wantedLevel > 0 && distTo(pos, pp.x, pp.z) < 20) {
+    const fleeHome = NPC_HOME[npc.id] || TENT_POS;
+    npc.mode = 'retreating';
+    if (!npc.target) npc.target = { x: fleeHome.x, z: fleeHome.z };
+  }
+
+    // ── Auto-retreat if too far from home ───────────────────────────────────
   const home = NPC_HOME[npc.id] || TENT_POS;
   if (npc.mode !== 'retreating') {
     if (distTo(pos, home.x, home.z) > RETREAT_DIST) {
@@ -667,7 +695,8 @@ function updateNpcMovement(npc) {
       }
       character.set([pos.x, pos.y, pos.z], [0, 0, 1]);
     } else {
-      const speed = npc.mode === 'following' ? NPC_SPEED * 1.4 : NPC_SPEED;
+      const woundedMult = (npc.hp / npc.maxHp) < 0.5 ? NPC_WOUNDED_SPEED_MULT : 1.0;
+      const speed = (npc.mode === 'following' ? NPC_SPEED * 1.4 : NPC_SPEED) * woundedMult;
       const step = Math.min(speed, dist);
       pos.x += (dx / dist) * step;
       pos.z += (dz / dist) * step;
@@ -718,38 +747,102 @@ function updateNpcHpBar(npc) {
   npc.hpBar.style.display = (!npc.dead && npc.hp < npc.maxHp && controls.isLocked) ? 'block' : 'none';
 }
 
-function damageNpc(npcId, dmg, hitPoint) {
+function damageNpc(npcId, dmg, hitPoint, isHeadshot = false) {
   const npc = npcs.get(npcId);
   if (!npc || npc.dead) return;
 
+  // Trust penalty: shooting an NPC costs -40 trust with that NPC; all others lose -10 (reputation)
+  modifyTrust(npcId, -40);
+  for (const [otherId] of npcs) {
+    if (otherId !== npcId) modifyTrust(otherId, -10);
+  }
+
   npc.hp = Math.max(0, npc.hp - dmg);
   updateNpcHpBar(npc);
-  showKillfeedEntry(`Hit ${npc.name} -${dmg}hp`);
+
+  // Floating damage number
+  if (hitPoint) {
+    spawnDamageNumber(hitPoint.clone(), dmg, isHeadshot);
+  }
+
+  showKillfeedEntry(isHeadshot ? `HEADSHOT ${npc.name} -${dmg}hp` : `Hit ${npc.name} -${dmg}hp`);
 
   if (npc.hp <= 0) {
-    // NPC dies — hide character, show kill feed, respawn after delay
+    // NPC dies
     npc.dead = true;
-    npc.character.visible = false;
     npc.hpBar.classList.add('hidden');
     npcDetachItemMesh(npc);
     npc.heldItem = null;
     showKillfeedEntry(`${npc.name} killed`);
+    const coinCount = 2 + Math.floor(Math.random() * 4);
+    showKillfeedEntry("+" + coinCount + " coins");
+    playerCoins += coinCount; updateWallet();
     showSpeechBubble(npc, '*dies*');
+    flashHitMarker('kill');
+
+    // Death fall animation: rotate character X 90deg over 500ms, then fade
+    const FALL_MS = 500;
+    const FADE_MS = 400;
+    const fallStart = performance.now();
+    const charGroup = npc.character;
+
+    const stepFall = () => {
+      const t = Math.min((performance.now() - fallStart) / FALL_MS, 1);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      charGroup.rotation.x = (Math.PI / 2) * ease;
+      if (t < 1) {
+        requestAnimationFrame(stepFall);
+      } else {
+        const fadeStart = performance.now();
+        const stepFade = () => {
+          const ft = Math.min((performance.now() - fadeStart) / FADE_MS, 1);
+          charGroup.traverse((o) => {
+            if (o.material) {
+              (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+                m.transparent = true;
+                m.opacity = 1 - ft;
+              });
+            }
+          });
+          if (ft < 1) {
+            requestAnimationFrame(stepFade);
+          } else {
+            charGroup.visible = false;
+            charGroup.traverse((o) => {
+              if (o.material) {
+                (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+                  m.opacity = 1;
+                });
+              }
+            });
+          }
+        };
+        requestAnimationFrame(stepFade);
+      }
+    };
+    requestAnimationFrame(stepFall);
+
+    // Respawn after delay: reset rotation + visibility
     setTimeout(() => {
       npc.hp = npc.maxHp;
       npc.dead = false;
-      npc.character.visible = true;
-      // Reset to home position
+      charGroup.rotation.x = 0;
+      charGroup.visible = true;
       const home = NPC_HOME[npcId];
       if (home) npc.pos.set(home.x, npc.pos.y, home.z);
       updateNpcHpBar(npc);
     }, NPC_RESPAWN_TIME);
   } else {
-    // React — flee and say something
+    // React — flee and say something; trigger wanted level for shooting an NPC
+    triggerWanted();
     npc.mode = 'retreating';
     const home = NPC_HOME[npcId];
     if (home) npc.target = { x: home.x, z: home.z };
     showSpeechBubble(npc, ['Ow!', 'What the—', 'Hey!', 'You shot me!'][Math.floor(Math.random()*4)]);
+    // Wounded limp speech — triggers when crossing below 50% for the first time
+    if (npc.hp < npc.maxHp * 0.5 && (npc.hp + dmg) >= npc.maxHp * 0.5) {
+      showSpeechBubble(npc, ["I'm... hit bad", "Can't run much more...", "You'll pay for this..."][Math.floor(Math.random()*3)]);
+    }
   }
 }
 
@@ -916,7 +1009,7 @@ function npcShootAt(npc, targetPlayerId) {
       if (dist < 35 && (!targetPlayerId || targetPlayerId === playerId)) {
         const damage = isShotgun ? 15 : 22;
         localHp = Math.max(0, localHp - damage);
-        updateHpBar?.(); flashDamage?.();
+        renderLocalHealthBar(); flashDamage?.();
         if (typeof recoilTarget !== "undefined")
           recoilTarget -= isShotgun ? 0.03 : 0.015;
         if (localHp <= 0) triggerDeath?.();
@@ -973,6 +1066,7 @@ function sendNpcContext(npc) {
       npc_id: npc.id,
       nearby_items: nearby,
       held_item: npc.heldItem?.id ?? null,
+      player_trust: npcTrust[npc.id] ?? 30,
     }),
   }).catch(e => console.error("[npc-context] fetch failed:", e));
 }
@@ -987,7 +1081,6 @@ function connectNpcEvents() {
     let data; try { data = JSON.parse(e.data); } catch { return; }
     const npc = npcs.get(data.npc_id);
     if (!npc) return;
-    npc.actionType = data.action_type;
 
     // Movement modes
     const home = NPC_HOME[npc.id] || TENT_POS;
@@ -1022,8 +1115,26 @@ function connectNpcEvents() {
       if (activeNpcDialog === data.npc_id) {
         dialogText.textContent = data.speech; dialogText.classList.remove("thinking");
       }
+      // Track first conversation and clues for objective flow
+      onNpcConversation();
+      const _clueWords = ['stolen', 'missing', 'took', 'clue', 'evidence', 'saw', 'secret', 'hiding', 'found', 'heard'];
+      if (_clueWords.some(w => data.speech.toLowerCase().includes(w))) onClueFound();
       // Speak via ElevenLabs TTS
       speakNpcResponse(data.npc_id, data.speech);
+      // Mystery clue detection
+      detectMysteryClues(data.npc_id, data.speech);
+      // Ray confess: drop clue_drive at his position
+      if (data.npc_id === 'ray') {
+        const rs = data.speech.toLowerCase();
+        if (rs.includes("take it") || rs.includes("don't want it") || rs.includes("dont want it") || rs.includes("here, take") || rs.includes("here — take") || rs.includes("i don") && rs.includes("want")) {
+          const rayNpc = npcs.get('ray');
+          if (rayNpc) {
+            const drivePos = new THREE.Vector3(rayNpc.pos.x + 0.5, rayNpc.pos.y - NPC_EYE_Y + 0.5, rayNpc.pos.z + 0.5);
+            const driveRoot = spawnGroundItem('clue_drive', ITEM_DEFS.clue_drive.makeData(), drivePos);
+            if (driveRoot) world.add(driveRoot);
+          }
+        }
+      }
       const pp = controls.position;
       const fdx = pp.x - npc.pos.x, fdz = pp.z - npc.pos.z;
       const flen = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
@@ -1045,14 +1156,251 @@ window.addEventListener("beforeunload", () => {
   if (NPC_LLM_ENABLED) fetch(`${NPC_API}/player-leave`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: playerId }) }).catch(() => {});
 });
 
+// ── Objective HUD ─────────────────────────────────────────────────────────────
+
+const objectiveEl = document.createElement("div");
+objectiveEl.id = "objective";
+document.body.appendChild(objectiveEl);
+
+function setObjective(text) {
+  objectiveEl.textContent = text;
+  objectiveEl.style.display = text ? 'block' : 'none';
+}
+
+setObjective("Talk to someone. Find out what happened.");
+
+// ── Wanted system ─────────────────────────────────────────────────────────────
+
+let wantedLevel = 0, wantedTimer = null;
+
+const wantedEl = document.createElement("div");
+wantedEl.id = "wanted";
+wantedEl.textContent = "★ WANTED";
+document.body.appendChild(wantedEl);
+
+function showWanted() { wantedEl.style.display = 'block'; }
+function hideWanted() { wantedEl.style.display = 'none'; }
+
+function triggerWanted() {
+  wantedLevel = 1;
+  clearTimeout(wantedTimer);
+  showWanted();
+  wantedTimer = setTimeout(() => { wantedLevel = 0; hideWanted(); }, 60000);
+}
+
+// ── Clue / objective flow tracking ───────────────────────────────────────────
+
+let clueCount = 0;
+let firstConversationDone = false;
+
+function onNpcConversation() {
+  if (!firstConversationDone) {
+    firstConversationDone = true;
+    setObjective("Something was stolen. Find out more.");
+  }
+}
+
+function onClueFound() {
+  clueCount++;
+  if (clueCount === 2) {
+    setObjective("You're getting closer. Keep asking questions.");
+  } else if (clueCount >= 4) {
+    setObjective(""); // mystery complete — hide objective
+  }
+}
+
 // ── Player wallet ─────────────────────────────────────────────────────────────
 
 let playerCoins = 10; // start with 10 coins
+
+// ── Mystery Journal ────────────────────────────────────────────────────────────
+const MYSTERY_CLUES = [
+  {
+    id: 'clue_chad',
+    title: 'A Missing Prototype',
+    body: 'Chad Worthington III says something valuable was taken from near the YC pop-up three nights ago. He thinks Ray fenced it.',
+    npc: 'chad',
+  },
+  {
+    id: 'clue_diane',
+    title: 'Diane Saw Thomas',
+    body: 'Diane saw Thomas stumbling toward the north bench late that night. She only told you after you bought something.',
+    npc: 'diane',
+  },
+  {
+    id: 'clue_marcus',
+    title: "Marcus's Errand",
+    body: 'Marcus admitted Thomas ran a pickup for him that night. He called it a "favour." He did not say what was taken.',
+    npc: 'marcus',
+  },
+  {
+    id: 'clue_thomas',
+    title: 'Thomas Talks',
+    body: "Thomas broke down. He grabbed a bag off a bench for Marcus and gave it straight to Ray to pawn. He says he didn't know what was inside.",
+    npc: 'thomas',
+  },
+];
+
+const JOURNAL_KEY = 'sfSim_journal_v1';
+let journalClues = new Set(JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'));
+
+function journalHasClue(id) { return journalClues.has(id); }
+
+function journalAddClue(id) {
+  if (journalClues.has(id)) return false;
+  journalClues.add(id);
+  localStorage.setItem(JOURNAL_KEY, JSON.stringify([...journalClues]));
+  renderJournal();
+  showClueToast(id);
+  return true;
+}
+
+function detectMysteryClues(npcId, speech) {
+  const s = speech.toLowerCase();
+  if (npcId === 'chad' && !journalHasClue('clue_chad')) {
+    if (s.includes('prototype') || s.includes('stolen') || s.includes('missing') || s.includes('pawn') || s.includes('pitch deck') || s.includes('drive')) {
+      journalAddClue('clue_chad');
+    }
+  }
+  if (npcId === 'diane' && !journalHasClue('clue_diane')) {
+    if (s.includes('thomas') && (s.includes('bench') || s.includes('night') || s.includes('stumbl') || s.includes('north'))) {
+      journalAddClue('clue_diane');
+    }
+  }
+  if (npcId === 'marcus' && !journalHasClue('clue_marcus')) {
+    if (s.includes('favour') || s.includes('favor') || s.includes('pickup') || s.includes('picked up') || (s.includes('thomas') && s.includes('night'))) {
+      journalAddClue('clue_marcus');
+    }
+  }
+  if (npcId === 'thomas' && !journalHasClue('clue_thomas')) {
+    if (s.includes('ray') && (s.includes('pawn') || s.includes('gave') || s.includes('bag'))) {
+      journalAddClue('clue_thomas');
+    }
+  }
+}
+
+function checkCaseSolvedPickup() {
+  for (let i = 0; i < 9; i++) {
+    const s = getSlot(i);
+    if (s && s.id === 'clue_drive') { triggerCaseSolved(); return; }
+  }
+}
+
+// ── Case Solved ────────────────────────────────────────────────────────────────
+let caseSolved = false;
+
+function triggerCaseSolved() {
+  if (caseSolved) return;
+  caseSolved = true;
+  localStorage.setItem('sfSim_caseSolved', '1');
+
+  const el = document.createElement('div');
+  el.id = 'case-solved';
+  el.innerHTML = [
+    '<div id="cs-box">',
+    '  <div id="cs-label">CASE CLOSED</div>',
+    '  <div id="cs-title">The Prototype Drive</div>',
+    '  <div id="cs-narrative">',
+    "    Marcus sent Thomas to grab Chad's bag.<br>",
+    '    Thomas handed it to Ray without asking questions.<br>',
+    '    Ray sat on it, terrified of what Marcus might do.<br>',
+    '    <br>',
+    '    You found it.',
+    '  </div>',
+    '  <div id="cs-sub">Press <kbd>F</kbd> to continue</div>',
+    '</div>',
+  ].join('');
+  document.body.appendChild(el);
+  document.exitPointerLock();
+
+  const dismiss = (e) => {
+    if (e.code === 'KeyF') {
+      el.classList.add('cs-fade');
+      setTimeout(() => el.remove(), 800);
+      window.removeEventListener('keydown', dismiss);
+      canvas.requestPointerLock();
+    }
+  };
+  setTimeout(() => window.addEventListener('keydown', dismiss), 400);
+}
 
 const walletEl = document.createElement("div");
 walletEl.id = "wallet";
 walletEl.textContent = `💰 ${playerCoins}`;
 document.body.appendChild(walletEl);
+
+// ── Journal DOM setup ──────────────────────────────────────────────────────────
+const journalBtnEl = document.createElement('div');
+journalBtnEl.id = 'journal-btn';
+journalBtnEl.textContent = 'J';
+document.body.appendChild(journalBtnEl);
+
+const journalEl = document.createElement('div');
+journalEl.id = 'journal';
+journalEl.innerHTML = [
+  '<div id="journal-header">',
+  '  <span id="journal-title">CASE FILE</span>',
+  '  <button id="journal-close">&#x2715;</button>',
+  '</div>',
+  '<div id="journal-clues"></div>',
+  '<div id="journal-footer">Talk to NPCs to uncover the truth.</div>',
+].join('');
+document.body.appendChild(journalEl);
+
+let journalOpen = false;
+
+function openJournal() {
+  if (activeNpcDialog) closeDialog();
+  journalOpen = true;
+  renderJournal();
+  journalEl.classList.add('open');
+  journalBtnEl.classList.add('active');
+}
+
+function closeJournal() {
+  journalOpen = false;
+  journalEl.classList.remove('open');
+  journalBtnEl.classList.remove('active');
+}
+
+document.getElementById('journal-close').addEventListener('click', closeJournal);
+
+function renderJournal() {
+  const container = document.getElementById('journal-clues');
+  if (!container) return;
+  const found = journalClues.size;
+  container.innerHTML = '';
+  MYSTERY_CLUES.forEach(clue => {
+    const isFound = journalClues.has(clue.id);
+    const div = document.createElement('div');
+    div.className = 'journal-clue' + (isFound ? ' found' : ' locked');
+    div.innerHTML = isFound
+      ? `<div class="jc-title">${clue.title}</div><div class="jc-body">${clue.body}</div><div class="jc-npc">— ${clue.npc.charAt(0).toUpperCase() + clue.npc.slice(1)}</div>`
+      : '<div class="jc-title locked-title">???</div><div class="jc-body locked-body">Speak to the right people.</div>';
+    container.appendChild(div);
+  });
+  const footer = document.getElementById('journal-footer');
+  if (footer) {
+    const total = MYSTERY_CLUES.length;
+    footer.textContent = found >= total
+      ? `All ${total} clues found. Find what Ray has.`
+      : `${found} / ${total} clues found.`;
+  }
+}
+
+function showClueToast(clueId) {
+  const clue = MYSTERY_CLUES.find(c => c.id === clueId);
+  if (!clue) return;
+  const toast = document.createElement('div');
+  toast.className = 'clue-toast';
+  toast.innerHTML = `<span class="ct-label">NEW CLUE</span> ${clue.title}`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add('ct-fade'), 2800);
+  setTimeout(() => toast.remove(), 3600);
+}
+
+// Render on load to restore any saved clues
+renderJournal();
 
 function updateWallet() {
   walletEl.textContent = `💰 ${playerCoins}`;
@@ -1064,6 +1412,89 @@ function updateWallet() {
   }
 }
 
+// ── Shop system ───────────────────────────────────────────────────────────────
+
+const SHOPS = {
+  ray: {
+    name: "Ray's Pawnshop",
+    items: [
+      { id: 'pistol', label: 'Pistol', price: 5, sells: true },
+      { id: 'ammo_9mm', label: 'Ammo (12 rounds)', price: 2 },
+      { id: 'shotgun', label: 'Shotgun', price: 8 },
+    ]
+  },
+  diane: {
+    name: "Diane's Bodega",
+    items: [
+      { id: 'granola_bar', label: 'Granola Bar (+20hp)', price: 1 },
+      { id: 'water', label: 'Water (+10hp)', price: 1 },
+    ]
+  }
+};
+
+let activeShopNpcId = null;
+
+const shopEl = document.createElement("div");
+shopEl.id = "shop";
+shopEl.classList.add("hidden");
+document.body.appendChild(shopEl);
+
+function openShop(npcId) {
+  const shopDef = SHOPS[npcId];
+  if (!shopDef) return;
+  activeShopNpcId = npcId;
+
+  const npc = npcs.get(npcId);
+  if (npc) {
+    const pp = controls.position;
+    const dx = pp.x - npc.pos.x, dz = pp.z - npc.pos.z;
+    const len = Math.sqrt(dx * dx + dz * dz) || 1;
+    npc.character.set([npc.pos.x, npc.pos.y, npc.pos.z], [dx / len, 0, dz / len]);
+    npc.character.update();
+  }
+
+  const itemsHtml = shopDef.items.map(item => `
+    <div class="shop-item">
+      <span class="shop-item-label">${item.label}</span>
+      <span class="shop-item-price">\u{1F4B0} ${item.price}</span>
+      <button class="shop-buy-btn" data-id="${item.id}" data-price="${item.price}">Buy</button>
+    </div>
+  `).join("");
+
+  shopEl.innerHTML = `
+    <div class="shop-header">
+      <span class="shop-name">${shopDef.name}</span>
+      <button id="shop-close">\u2715</button>
+    </div>
+    <div class="shop-items">${itemsHtml}</div>
+  `;
+
+  document.getElementById("shop-close").addEventListener("click", closeShop);
+  shopEl.querySelectorAll(".shop-buy-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const itemId = btn.dataset.id;
+      const price = parseInt(btn.dataset.price);
+      if (playerCoins < price) { showKillfeedEntry("Not enough coins"); return; }
+      playerCoins -= price;
+      updateWallet();
+      addItem(itemId, 1, null);
+      refreshHotbar();
+      syncWeaponToSlot(getFocusedSlot());
+      showKillfeedEntry("Bought " + (ITEM_DEFS[itemId]?.name ?? itemId));
+    });
+  });
+
+  shopEl.classList.remove("hidden");
+  document.exitPointerLock();
+  controls.isLocked = false;
+  inputs.setNamespace("menu");
+}
+
+function closeShop() {
+  activeShopNpcId = null;
+  shopEl.classList.add("hidden");
+}
+
 // ── Dialog box ────────────────────────────────────────────────────────────────
 
 let activeNpcDialog = null;
@@ -1071,9 +1502,21 @@ const dialogEl    = document.getElementById("dialog");
 const dialogName  = document.getElementById("dialog-name");
 const dialogText  = document.getElementById("dialog-text");
 const dialogInput = document.getElementById("dialog-input");
+const dialogTrustEl  = document.getElementById("dialog-trust");
 const giveBtn        = document.getElementById("give-coin-btn");
 const giveAmountSel  = document.getElementById("give-coin-amount");
 document.getElementById("dialog-close").addEventListener("click", closeDialog);
+
+function setDialogPortrait(npcId) {
+  const portrait = document.getElementById("dialog-portrait");
+  if (!portrait) return;
+  const npc = npcs.get(npcId);
+  if (!npc) return;
+  const col = NPC_COLORS[npcId] || { bg: "#333", text: "#fff" };
+  portrait.style.backgroundColor = col.bg;
+  portrait.style.color = col.text;
+  portrait.textContent = npc.name.charAt(0).toUpperCase();
+}
 
 function openDialog(npcId) {
   const npc = npcs.get(npcId); if (!npc) return;
@@ -1087,6 +1530,15 @@ function openDialog(npcId) {
   npc.character.update();
 
   dialogName.textContent = npc.name;
+  setDialogPortrait(npcId);
+  // Trust indicator dots
+  if (dialogTrustEl) {
+    const trust = npcTrust[npcId] || 30;
+    const color = trust <= 33 ? '#e74c3c' : trust <= 66 ? '#f1c40f' : '#2ecc71';
+    dialogTrustEl.innerHTML = '<span class="trust-dot" style="background:' + color + '"></span>'
+      + '<span class="trust-dot" style="background:' + color + '"></span>'
+      + '<span class="trust-dot" style="background:' + color + '"></span>';
+  }
   dialogText.textContent = npc.lastSpeech || "...";
   dialogText.classList.remove("thinking");
   dialogInput.value = "";
@@ -1118,6 +1570,7 @@ giveBtn.addEventListener("click", () => {
   if (!activeNpcDialog || playerCoins <= 0) return;
   const amount = Math.min(parseInt(giveAmountSel.value) || 1, playerCoins);
   playerCoins -= amount;
+  modifyTrust(activeNpcDialog, amount * 5);
   updateWallet();
   fetch(`${NPC_API}/npc-message`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -1133,17 +1586,21 @@ giveBtn.addEventListener("click", () => {
 
 inputs.bind("KeyE", () => {
   if (activeNpcDialog) { closeDialog(); return; }
+  if (activeShopNpcId) { closeShop(); return; }
   // Try inventory pickup first
   const camPos = controls.object.getWorldPosition(new THREE.Vector3());
   const pickedUp = tryPickup(world, camPos);
-  if (pickedUp) { syncWeaponToSlot(getFocusedSlot()); return; }
-  // Otherwise open NPC dialog
+  if (pickedUp) { syncWeaponToSlot(getFocusedSlot()); checkCaseSolvedPickup(); return; }
+  // Otherwise open shop (for ray/diane) or dialog for other NPCs
   const pp = controls.position; let nearest = null, nearestDist = Infinity;
   for (const [id, npc] of npcs) {
     const d = Math.sqrt((npc.pos.x-pp.x)**2 + (npc.pos.z-pp.z)**2);
     if (d < 4 && d < nearestDist) { nearest = id; nearestDist = d; }
   }
-  if (nearest) openDialog(nearest);
+  if (nearest) {
+    if (SHOPS[nearest]) openShop(nearest);
+    else openDialog(nearest);
+  }
 }, "in-game");
 
 // Q — drop focused hotbar item
@@ -1287,6 +1744,12 @@ function renderLocalHealthBar() {
 }
 renderLocalHealthBar();
 
+function healPlayer(amount) {
+  localHp = Math.min(MAX_HP, localHp + amount);
+  renderLocalHealthBar();
+  showKillfeedEntry("+" + amount + "hp");
+}
+
 // Kill feed
 const killfeedEl = document.createElement("div");
 killfeedEl.id = "killfeed";
@@ -1299,6 +1762,21 @@ function showKillfeedEntry(text) {
   killfeedEl.prepend(el);
   setTimeout(() => el.classList.add("kf-fade"), 2500);
   setTimeout(() => el.remove(), 3200);
+}
+
+function spawnDamageNumber(worldPos, dmg, isHeadshot) {
+  // Project 3-D point to screen
+  const sc = worldPos.clone().project(camera);
+  if (sc.z > 1) return; // behind camera
+  const x = (sc.x * 0.5 + 0.5) * window.innerWidth;
+  const y = (-sc.y * 0.5 + 0.5) * window.innerHeight;
+  const el = document.createElement("div");
+  el.className = "dmg-number" + (isHeadshot ? " headshot" : "");
+  el.textContent = isHeadshot ? `${dmg} HEADSHOT` : `-${dmg}`;
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 950);
 }
 
 // Floating HP bar above peer
@@ -1345,10 +1823,45 @@ const hitMarkerEl = document.createElement("div");
 hitMarkerEl.id = "hit-marker";
 document.body.appendChild(hitMarkerEl);
 let hitMarkerTimeout = null;
-function flashHitMarker() {
-  hitMarkerEl.classList.add("active");
-  clearTimeout(hitMarkerTimeout);
-  hitMarkerTimeout = setTimeout(() => hitMarkerEl.classList.remove("active"), 120);
+// variant: 'normal' | 'headshot' | 'kill'
+function flashHitMarker(variant = "normal") {
+  hitMarkerEl.classList.remove("active", "hm-headshot", "hm-kill");
+  void hitMarkerEl.offsetWidth; // force reflow
+
+  if (variant === "kill") {
+    hitMarkerEl.textContent = "\u{1F480}";
+    hitMarkerEl.classList.add("hm-kill", "active");
+    clearTimeout(hitMarkerTimeout);
+    hitMarkerTimeout = setTimeout(() => {
+      hitMarkerEl.classList.remove("active", "hm-kill");
+      hitMarkerEl.textContent = "";
+    }, 800);
+  } else if (variant === "headshot") {
+    hitMarkerEl.classList.add("hm-headshot", "active");
+    clearTimeout(hitMarkerTimeout);
+    try {
+      const ctx = voiceAudioCtx || (voiceAudioCtx = new AudioContext());
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.06);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.09);
+    } catch (_) {}
+    hitMarkerTimeout = setTimeout(
+      () => hitMarkerEl.classList.remove("active", "hm-headshot"),
+      200,
+    );
+  } else {
+    hitMarkerEl.classList.add("active");
+    clearTimeout(hitMarkerTimeout);
+    hitMarkerTimeout = setTimeout(() => hitMarkerEl.classList.remove("active"), 120);
+  }
 }
 
 // Damage flash
@@ -1357,6 +1870,7 @@ dmgFlashEl.id = "damage-flash";
 document.body.appendChild(dmgFlashEl);
 
 function flashDamage() {
+  lastCombatTime = performance.now();
   dmgFlashEl.classList.add("active");
   setTimeout(() => dmgFlashEl.classList.remove("active"), 220);
 }
@@ -1379,7 +1893,9 @@ function triggerDeath() {
     localDead = false;
     localHp = MAX_HP;
     renderLocalHealthBar();
-    controls.teleportToTop(0, 0);
+    const _respawnPositions = [[-15,0], [15,0], [0,-15], [0,15], [-8,-8], [8,8]];
+    const _respawnPos = _respawnPositions[Math.floor(Math.random() * _respawnPositions.length)];
+    controls.teleportToTop(_respawnPos[0], _respawnPos[1]);
     events.emit("player-respawn", {});
     setTimeout(() => { controls.isLocked = true; canvas.requestPointerLock(); inputs.setNamespace("in-game"); }, 100);
   }, 3000);
@@ -1452,6 +1968,8 @@ const WEAPONS = {
     reloadTime: 2000,
   },
 };
+const PUNCH_RANGE  = 2.5;
+const PUNCH_DAMAGE = 15;
 const weaponOrder = ["pistol", "shotgun"];
 let currentWeaponKey = null; // null = no weapon equipped
 let currentWeapon = null;
@@ -1927,11 +2445,18 @@ function fireRay(dir) {
 
   // NPC hit
   if (hitNpcId && closestPeerDist < voxDist) {
-    const dmg = currentWeaponKey === "shotgun" ? 15 : 25;
-    damageNpc(hitNpcId, dmg, hitNpcPoint);
+    const npc = npcs.get(hitNpcId);
+    const footY = npc.pos.y - NPC_EYE_Y;
+    const totalH = npc.character.totalHeight ?? 1.31;
+    const headThreshold = footY + totalH * (2 / 3);
+    const isHeadshot = hitNpcPoint && hitNpcPoint.y >= headThreshold;
+    const baseDmg = currentWeaponKey === "shotgun" ? 15 : 25;
+    const dmg = isHeadshot ? baseDmg * 2 : baseDmg;
+    damageNpc(hitNpcId, dmg, hitNpcPoint, isHeadshot);
     spawnHitSparks(hitNpcPoint.toArray(), [0, 1, 0]);
-    spawnTracer(muzzleOrigin.clone(), hitNpcPoint, 0xff3333);
-    flashHitMarker();
+    spawnTracer(muzzleOrigin.clone(), hitNpcPoint, isHeadshot ? 0xff0000 : 0xff3333);
+    flashHitMarker(isHeadshot ? "headshot" : "normal");
+    if (isHeadshot) showKillfeedEntry(`HEADSHOT ${npc.name}`);
     return;
   }
 
@@ -2023,6 +2548,7 @@ function fireWeapon() {
   }
 
   lastFireTime = now;
+  lastCombatTime = performance.now();
   ammoSlot.data.ammo -= 1;
   refreshHotbar();
   updateAmmoHUD();
@@ -2047,16 +2573,36 @@ function fireWeapon() {
   applyRecoil(currentWeapon.recoil);
   flashCrosshair();
 
+  // Movement spread penalty
+  const { front, back, left, right } = controls.movements;
+  const isMoving = front || back || left || right;
+  const movePenalty = isMoving ? 0.04 : 0;
+
   if (currentWeapon.pellets === 1) {
-    fireRay(base);
+    const s = currentWeapon.spread + movePenalty;
+    const dir = s > 0
+      ? base.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * s,
+          (Math.random() - 0.5) * s,
+          (Math.random() - 0.5) * s,
+        )).normalize()
+      : base;
+    fireRay(dir);
   } else {
     for (let i = 0; i < currentWeapon.pellets; i++) {
-      const s = currentWeapon.spread;
-      fireRay(base.clone().add(new THREE.Vector3(
-        (Math.random()-0.5)*s,
-        (Math.random()-0.5)*s,
-        (Math.random()-0.5)*s,
-      )).normalize());
+      const s = currentWeapon.spread + movePenalty;
+      fireRay(
+        base
+          .clone()
+          .add(
+            new THREE.Vector3(
+              (Math.random() - 0.5) * s,
+              (Math.random() - 0.5) * s,
+              (Math.random() - 0.5) * s,
+            ),
+          )
+          .normalize(),
+      );
     }
   }
 }
@@ -2067,10 +2613,54 @@ function punchHand() {
   isPunching = true;
   const baseY = fpHand.userData.baseY ?? -0.28;
   const baseZ = -0.38;
-  // Thrust forward and slightly up, then pull back
   fpHand.position.z = baseZ - 0.18;
   fpHand.position.y = baseY + 0.04;
   fpHand.rotation.x = -0.15;
+
+  // Melee raycast — fires at peak extension (80 ms in)
+  setTimeout(() => {
+    const origin = new THREE.Vector3();
+    camera.getWorldPosition(origin);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const punchRay = new THREE.Ray(origin, dir);
+
+    let hitNpcId = null;
+    let hitNpcPoint = null;
+    let closestDist = PUNCH_RANGE;
+
+    npcs.forEach((npc, npcId) => {
+      if (npc.dead) return;
+      const footY = npc.pos.y - NPC_EYE_Y;
+      const totalH = npc.character.totalHeight ?? 1.31;
+      const npcBox = new THREE.Box3(
+        new THREE.Vector3(npc.pos.x - 0.65, footY - 0.2, npc.pos.z - 0.65),
+        new THREE.Vector3(npc.pos.x + 0.65, footY + totalH + 0.2, npc.pos.z + 0.65),
+      );
+      const intersect = new THREE.Vector3();
+      const hit = punchRay.intersectBox(npcBox, intersect);
+      if (!hit && !npcBox.containsPoint(origin)) return;
+      const dist = hit ? origin.distanceTo(intersect) : 0;
+      if (dist < closestDist) {
+        closestDist = dist;
+        hitNpcId = npcId;
+        hitNpcPoint = hit ? intersect.clone() : new THREE.Vector3(npc.pos.x, npc.pos.y, npc.pos.z);
+      }
+    });
+
+    if (hitNpcId) {
+      const npc = npcs.get(hitNpcId);
+      const footY = npc.pos.y - NPC_EYE_Y;
+      const totalH = npc.character.totalHeight ?? 1.31;
+      const headThreshold = footY + totalH * 0.65;
+      const isHeadshot = hitNpcPoint && hitNpcPoint.y >= headThreshold;
+      const dmg = isHeadshot ? PUNCH_DAMAGE * 2 : PUNCH_DAMAGE;
+      damageNpc(hitNpcId, dmg, hitNpcPoint, isHeadshot);
+      spawnHitSparks(hitNpcPoint.toArray(), [0, 1, 0]);
+      flashHitMarker(isHeadshot ? "headshot" : "normal");
+    }
+  }, 80);
+
   setTimeout(() => {
     fpHand.position.z = baseZ;
     fpHand.position.y = baseY;
@@ -2209,6 +2799,10 @@ inputs.bind("ShiftLeft", () => {
 
 inputs.bind("KeyG", controls.toggleGhostMode, "in-game");
 
+// ── J key: toggle journal ──────────────────────────────────────────────────────
+inputs.bind('KeyJ', () => { if (journalOpen) closeJournal(); else openJournal(); }, 'in-game', { identifier: 'journal-toggle' });
+inputs.bind('KeyJ', () => { if (journalOpen) closeJournal(); else openJournal(); }, 'menu', { identifier: 'journal-toggle-menu' });
+
 // ── H key: toggle hitbox visualiser ──────────────────────────────────────────
 let hitboxVis = false;
 const hitboxHelpers = [];
@@ -2249,7 +2843,6 @@ function refreshHitboxHelpers() {
 inputs.bind("KeyH", () => {
   hitboxVis = !hitboxVis;
   refreshHitboxHelpers();
-  console.log('Hitbox vis:', hitboxVis);
 }, "in-game");
 
 controls.on("lock", () => {
@@ -2287,6 +2880,7 @@ canvas.addEventListener("click", () => {
     controls.isLocked = true;
     inputs.setNamespace("in-game");
     canvas.requestPointerLock();
+    startAmbience(); // requires user gesture
   }
 });
 
@@ -2320,6 +2914,31 @@ document.addEventListener("mousemove", (e) => {
 const fpsEl = document.createElement("div");
 fpsEl.id = "fps"; document.body.appendChild(fpsEl);
 let frames = 0, lastFpsTime = performance.now();
+
+// Vignette overlay
+const vignetteEl = document.createElement("div");
+vignetteEl.id = "vignette";
+document.body.appendChild(vignetteEl);
+
+// NPC radar container
+const npcRadarEl = document.createElement("div");
+npcRadarEl.id = "npc-radar";
+document.body.appendChild(npcRadarEl);
+
+// Per-NPC radar blips (one per NPC, parented to npcRadarEl)
+const npcBlips = new Map(); // npcId -> div element
+for (const [id] of npcs) {
+  const blip = document.createElement("div");
+  blip.className = "npc-blip";
+  blip.style.display = "none";
+  const col = NPC_COLORS[id];
+  if (col) {
+    blip.style.backgroundColor = col.bg;
+    blip.style.color = col.bg; // used by currentColor in ::after ring
+  }
+  npcRadarEl.appendChild(blip);
+  npcBlips.set(id, blip);
+}
 
 // ── Animate loop ──────────────────────────────────────────────────────────────
 
@@ -2421,6 +3040,30 @@ function animate() {
       if (!activeEffects[i].update(_dt)) activeEffects.splice(i, 1);
     }
 
+    // Atmosphere: ambient sound, drone, footsteps, vignette
+    updateAtmosphere(_dt, controls.position, npcs, currentWeaponKey, lastCombatTime);
+
+    // Footsteps
+    if (controls.isLocked && !localDead) {
+      const vel = controls.body?.velocity;
+      const moving = vel && (Math.abs(vel.x) > 0.5 || Math.abs(vel.z) > 0.5);
+      if (moving) {
+        _footstepTimer += _dt;
+        if (_footstepTimer > 0.45) {
+          _footstepTimer = 0;
+          playFootstep('road');
+        }
+      } else {
+        _footstepTimer = 0;
+      }
+    }
+
+    // Vignette: red tint during combat
+    if (vignetteEl) {
+      const combatActive = (performance.now() - lastCombatTime) < 3000;
+      vignetteEl.classList.toggle('combat', combatActive);
+    }
+
     // Inventory ground items + pickup tooltip
     updateInventory(world, controls.position, _dt);
 
@@ -2443,7 +3086,10 @@ function animate() {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+let _gameStarted = false;
 async function start() {
+  if (_gameStarted) return;
+  _gameStarted = true;
   animate();
 
   // Init hotbar UI

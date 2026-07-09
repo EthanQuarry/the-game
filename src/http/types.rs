@@ -48,4 +48,6 @@ pub struct NpcContextBody {
     pub npc_id: String,
     pub nearby_items: Vec<NearbyItemEntry>,
     pub held_item: Option<String>,
+    #[serde(default)]
+    pub player_trust: Option<i32>,
 }

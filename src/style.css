@@ -103,7 +103,6 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
   background: url("/background.png") center/cover;
   pointer-events: none;
   z-index: 10;
-  cursor: pointer;
 }
 
 #overlay.hidden { display: none; }
@@ -177,6 +176,10 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
   font-size: 0.7rem; color: #8ecfff;
   margin-bottom: 2px; font-weight: bold; letter-spacing: 0.04em;
 }
+.speech-bubble .bubble-text {
+  font-size: 0.8rem; color: #f0f0f0;
+  line-height: 1.4;
+}
 
 /* ── Dialog box ───────────────────────────────────────────────────────────── */
 
@@ -199,6 +202,8 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
 #dialog-close:hover { color: rgba(255,255,255,0.9); }
 
 #dialog-name { font-size: 0.75rem; color: #8ecfff; font-weight: bold; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+#dialog-trust { display: flex; gap: 3px; margin-bottom: 6px; }
+.trust-dot { width: 8px; height: 8px; border-radius: 50%; }
 #dialog-text { font-size: 0.9rem; min-height: 2.2em; margin-bottom: 10px; line-height: 1.4; color: #ddd; }
 #dialog-text.thinking { color: #888; font-style: italic; }
 #dialog-hint { font-size: 0.7rem; color: #555; margin-bottom: 6px; }
@@ -306,7 +311,7 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
 /* ── Health HUD ───────────────────────────────────────────────────────────── */
 #health-hud {
   position: fixed; bottom: 90px; left: 16px;
-  pointer-events: none; z-index: 50;
+  pointer-events: none; z-index: 48;
   font-family: monospace;
 }
 .hb-label {
@@ -351,7 +356,7 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
 /* ── Kill feed ────────────────────────────────────────────────────────────── */
 #killfeed {
   position: fixed; top: 60px; right: 16px;
-  pointer-events: none; z-index: 50;
+  pointer-events: none; z-index: 49;
   display: flex; flex-direction: column; gap: 4px;
   align-items: flex-end;
 }
@@ -397,4 +402,335 @@ html, body { height: 100%; overflow: hidden; font-family: "PixelMaster"; }
   border-radius: 3px; overflow: hidden;
   border: 1px solid rgba(0,0,0,0.5);
   margin: 0 auto;
+}
+
+/* ── Objective HUD ────────────────────────────────────────────────────────── */
+#objective {
+  position: fixed; top: 16px; left: 16px;
+  color: #ffd700; font-family: monospace; font-size: 0.8rem;
+  background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 4px;
+  pointer-events: none; z-index: 20;
+}
+
+/* ── Wanted indicator ─────────────────────────────────────────────────────── */
+#wanted {
+  position: fixed; top: 10px; right: 100px;
+  color: #ef4444; font-size: 1.5rem;
+  z-index: 20; display: none;
+}
+
+/* ── Floating damage numbers ──────────────────────────────────────────────── */
+.dmg-number {
+  position: fixed;
+  font-family: monospace;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #ff4444;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+  pointer-events: none;
+  z-index: 60;
+  white-space: nowrap;
+  animation: dmg-float 0.9s ease-out forwards;
+}
+.dmg-number.headshot {
+  color: #ffdd00;
+  font-size: 1.4rem;
+}
+@keyframes dmg-float {
+  0%   { opacity: 1;   transform: translate(-50%, 0);     }
+  80%  { opacity: 0.7; transform: translate(-50%, -42px); }
+  100% { opacity: 0;   transform: translate(-50%, -52px); }
+}
+
+/* ── Headshot hit-marker: red cross ──────────────────────────────────────── */
+#hit-marker.hm-headshot::before,
+#hit-marker.hm-headshot::after {
+  background: #ff0000;
+  box-shadow: 0 0 6px #ff0000;
+}
+
+/* ── Kill: skull replaces crosshair ─────────────────────────────────────── */
+#hit-marker.hm-kill {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255,0,0,0.8);
+}
+/* Suppress the pseudo-element cross during kill state */
+#hit-marker.hm-kill::before,
+#hit-marker.hm-kill::after {
+  display: none;
+}
+
+/* ── Shop UI ──────────────────────────────────────────────────────────────── */
+#shop {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  width: 360px;
+  background: rgba(15,15,25,0.95); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 10px; padding: 14px 16px 12px;
+  z-index: 40; font-family: sans-serif; color: #eee;
+}
+#shop.hidden { display: none; }
+
+.shop-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.shop-name {
+  font-size: 0.85rem; color: #8ecfff; font-weight: bold;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+#shop-close {
+  background: none; border: none; cursor: pointer;
+  color: rgba(255,255,255,0.4); font-size: 1rem; line-height: 1;
+  padding: 2px 4px; border-radius: 3px;
+  transition: color 0.15s;
+}
+#shop-close:hover { color: rgba(255,255,255,0.9); }
+
+.shop-items { display: flex; flex-direction: column; gap: 6px; }
+
+.shop-item {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px; padding: 6px 10px;
+}
+.shop-item-label {
+  flex: 1; font-size: 0.88rem; color: #ddd;
+}
+.shop-item-price {
+  font-size: 0.82rem; color: #ffd700; font-family: monospace;
+  white-space: nowrap;
+}
+.shop-buy-btn {
+  background: rgba(255,215,0,0.15); border: 1px solid rgba(255,215,0,0.4);
+  border-radius: 5px; color: #ffd700; font-size: 0.8rem; padding: 4px 10px;
+  cursor: pointer; white-space: nowrap; transition: background 0.15s;
+}
+.shop-buy-btn:hover { background: rgba(255,215,0,0.3); }
+
+/* ── Vignette overlay ─────────────────────────────────────────────────────── */
+#vignette {
+  position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.7) 100%);
+  transition: background 0.3s;
+}
+#vignette.combat {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(120,0,0,0.5) 100%);
+  transition: background 0.3s;
+}
+
+/* ── NPC radar blips ──────────────────────────────────────────────────────── */
+#npc-radar {
+  position: fixed; inset: 0; pointer-events: none; z-index: 25;
+}
+.npc-blip {
+  position: fixed;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 0 4px currentColor;
+}
+
+/* ── Dialog portrait ──────────────────────────────────────────────────────── */
+#dialog-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px;
+}
+#dialog-portrait {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: sans-serif; font-size: 1.2rem; font-weight: bold;
+  color: #fff;
+}
+#dialog-header-text {
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+/* ── Journal button ──────────────────────────────────────────────────────── */
+#journal-btn {
+  position: fixed; top: 16px; left: 16px;
+  width: 32px; height: 32px;
+  background: rgba(10,8,6,0.85);
+  border: 1px solid rgba(200,160,80,0.55);
+  border-radius: 5px;
+  color: #c8a050;
+  font-family: monospace; font-size: 1rem; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  z-index: 55;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+#journal-btn.active,
+#journal-btn:hover {
+  background: rgba(30,22,10,0.95);
+  border-color: rgba(200,160,80,0.9);
+  color: #ffd060;
+}
+
+/* ── Journal panel ───────────────────────────────────────────────────────── */
+#journal {
+  position: fixed; top: 0; left: -340px;
+  width: 320px; height: 100%;
+  background: rgba(8,6,4,0.97);
+  border-right: 1px solid rgba(180,140,60,0.3);
+  z-index: 54;
+  display: flex; flex-direction: column;
+  font-family: 'Courier New', Courier, monospace;
+  transition: left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+#journal.open { left: 0; }
+
+#journal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(180,140,60,0.25);
+  flex-shrink: 0;
+}
+#journal-title {
+  font-size: 0.7rem; font-weight: bold;
+  letter-spacing: 0.22em; color: #b8904a;
+  text-transform: uppercase;
+}
+#journal-close {
+  background: none; border: none; cursor: pointer;
+  color: rgba(200,160,80,0.4); font-size: 0.9rem; line-height: 1;
+  padding: 2px 4px; border-radius: 3px;
+  transition: color 0.15s;
+}
+#journal-close:hover { color: rgba(200,160,80,0.9); }
+
+#journal-clues {
+  flex: 1; overflow-y: auto; padding: 10px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(180,140,60,0.3) transparent;
+}
+
+.journal-clue {
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid;
+}
+.journal-clue.found {
+  background: rgba(20,15,8,0.9);
+  border-color: rgba(180,140,60,0.35);
+}
+.journal-clue.locked {
+  background: rgba(12,10,8,0.7);
+  border-color: rgba(80,70,55,0.3);
+  opacity: 0.55;
+}
+
+.jc-title {
+  font-size: 0.72rem; font-weight: bold;
+  color: #d4a840; letter-spacing: 0.05em;
+  margin-bottom: 4px; text-transform: uppercase;
+}
+.jc-title.locked-title { color: rgba(120,100,70,0.6); }
+
+.jc-body {
+  font-size: 0.76rem; color: #b0a090; line-height: 1.5;
+}
+.jc-body.locked-body { color: rgba(90,80,65,0.7); font-style: italic; }
+
+.jc-npc {
+  font-size: 0.65rem; color: rgba(180,140,60,0.55);
+  margin-top: 6px; text-align: right; letter-spacing: 0.05em;
+}
+
+#journal-footer {
+  flex-shrink: 0;
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(180,140,60,0.2);
+  font-size: 0.65rem; color: rgba(160,130,80,0.6);
+  letter-spacing: 0.04em;
+}
+
+/* ── Clue toast notification ─────────────────────────────────────────────── */
+.clue-toast {
+  position: fixed;
+  top: 60px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10,8,4,0.95);
+  border: 1px solid rgba(200,160,60,0.7);
+  border-radius: 6px;
+  color: #e0b840;
+  font-family: monospace; font-size: 0.78rem;
+  padding: 8px 18px;
+  pointer-events: none;
+  z-index: 70;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.7s ease;
+}
+.clue-toast .ct-label {
+  font-weight: bold; letter-spacing: 0.14em; color: #f0c040;
+  margin-right: 6px;
+}
+.clue-toast.ct-fade { opacity: 0; }
+
+/* ── Case Solved screen ───────────────────────────────────────────────────── */
+#case-solved {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.88);
+  z-index: 100;
+  animation: cs-in 0.6s ease forwards;
+}
+#case-solved.cs-fade {
+  animation: cs-out 0.8s ease forwards;
+}
+@keyframes cs-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cs-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+#cs-box {
+  text-align: center;
+  max-width: 500px;
+  padding: 0 24px;
+  font-family: 'Courier New', Courier, monospace;
+}
+#cs-label {
+  font-size: 0.75rem; letter-spacing: 0.28em;
+  color: rgba(200,160,60,0.7);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+#cs-title {
+  font-size: 2.4rem; color: #f0c040;
+  letter-spacing: 0.06em;
+  margin-bottom: 24px;
+  text-shadow: 0 0 30px rgba(240,192,64,0.35);
+}
+#cs-narrative {
+  font-size: 0.92rem; color: #c8b898;
+  line-height: 1.9; margin-bottom: 32px;
+}
+#cs-sub {
+  font-size: 0.72rem; color: rgba(200,160,60,0.5);
+  letter-spacing: 0.1em;
+}
+#cs-sub kbd {
+  background: rgba(200,160,60,0.15);
+  border: 1px solid rgba(200,160,60,0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: inherit;
+  color: rgba(200,160,60,0.8);
 }

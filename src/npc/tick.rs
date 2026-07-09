@@ -64,6 +64,21 @@ fn build_user_prompt(
         p.push_str(&format!("You are holding: {}\n\n", item));
     }
 
+    // Trust level from client
+    if let Some(trust) = state.trust_level.values().next().copied() {
+        p.push_str(&format!(
+            "Player trust level: {}/100. {}\n\n",
+            trust,
+            if trust <= 33 {
+                "Low trust — be guarded, deflect personal questions, keep responses brief."
+            } else if trust <= 66 {
+                "Moderate trust — engage normally."
+            } else {
+                "High trust — open up more, share details, be warmer."
+            }
+        ));
+    }
+
     p.push_str("Decide your next action.\n");
     p
 }
@@ -79,7 +94,7 @@ pub async fn run_npc_tick(
     loop {
         sleep(Duration::from_millis(300)).await;
 
-        let (has_messages, in_flight, nearby_count, time_since_last) = {
+        let (has_messages, in_flight, _nearby_count, _time_since_last) = {
             let npc = npc_arc.lock().unwrap();
             let all = players.lock().unwrap();
             let count = all.iter().filter(|p| {

@@ -85,6 +85,9 @@ pub async fn handle_npc_context(
         let mut npc = state_arc.lock().unwrap();
         npc.nearby_items = body.nearby_items.iter().map(|i| (i.id.clone(), i.dist)).collect();
         npc.held_item = body.held_item.clone();
+        if let Some(trust) = body.player_trust {
+            npc.trust_level.insert(body.npc_id.clone(), trust);
+        }
         HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
     } else {
         HttpResponse::NotFound().json(serde_json::json!({ "error": "NPC not found" }))
